@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output (framework-agnostic — covers Vite/Next/Nuxt/SvelteKit/Angular/etc.)
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+.next/
+.nuxt/
+.svelte-kit/
+.angular/
+.turbo/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Misc
+*.local
