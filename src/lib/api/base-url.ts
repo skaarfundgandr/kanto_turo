@@ -15,6 +15,12 @@ function describeValue(value: string): string {
  */
 function normalizeBaseUrl(raw: string | undefined): string {
 	const value = raw?.trim() || DEFAULT_BASE_URL;
+	if (value.endsWith('?') || value.endsWith('#')) {
+		throw new Error(
+			`PUBLIC_API_BASE_URL must not contain a query string or hash: ${describeValue(value)}. ` +
+				`Set it in .env to e.g. ${DEFAULT_BASE_URL}.`
+		);
+	}
 
 	let url: URL;
 	try {

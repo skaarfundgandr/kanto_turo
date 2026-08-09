@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
@@ -9,5 +10,11 @@ export default defineConfig({
 		host: '127.0.0.1',
 		port: 5173,
 		strictPort: true
+	},
+	test: {
+		// happy-dom provides localStorage/document for store tests; no network
+		// or database is ever touched (fetch is stubbed in API tests).
+		environment: 'happy-dom',
+		include: ['tests/**/*.test.ts']
 	}
 });
