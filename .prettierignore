@@ -1,0 +1,9 @@
+# Generated API types are reformatted by openapi-typescript itself
+src/lib/api/generated.ts
+
+# Design/reference material, never part of the application
+.opencode/
+
+# Build output
+.svelte-kit/
+build/
