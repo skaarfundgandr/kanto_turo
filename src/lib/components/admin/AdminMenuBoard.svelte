@@ -19,6 +19,8 @@
 	export let active = false;
 
 	type LoadState = 'idle' | 'loading' | 'ready' | 'error';
+	type ProductsLoadResult =
+		{ status: 'success'; products: Product[] } | { status: 'error' } | { status: 'superseded' };
 
 	let mounted = false;
 	let activeStarted = false;
@@ -31,6 +33,7 @@
 	let productsError = '';
 	let productsBusy = false;
 	let productsRequest = 0;
+	let latestProductsLoad: Promise<ProductsLoadResult> | null = null;
 
 	let name = '';
 	let price = '';
@@ -54,6 +57,10 @@
 		void loadProducts(true);
 	}
 	$: if (mounted && !active && activeStarted) {
+		deactivateMenuLoads();
+	}
+
+	function deactivateMenuLoads(): void {
 		activeStarted = false;
 		categoriesRequest += 1;
 		productsRequest += 1;
@@ -132,27 +139,43 @@
 		}
 	}
 
-	async function loadProducts(showLoading = false): Promise<Product[] | null> {
-		if (!active) return null;
+	function loadProducts(showLoading = false): Promise<ProductsLoadResult> {
+		if (!active) return Promise.resolve({ status: 'superseded' });
 		const request = ++productsRequest;
 		if (showLoading || products.length === 0) productsState = 'loading';
 		productsBusy = true;
 		productsError = '';
 
-		try {
-			const loaded = await listProducts();
-			if (!mounted || !active || request !== productsRequest) return null;
-			products = loaded;
-			productsState = 'ready';
-			return loaded;
-		} catch (error) {
-			if (!mounted || request !== productsRequest) return null;
-			productsState = products.length > 0 ? 'ready' : 'error';
-			productsError = errorMessage(error, 'load');
-			return null;
-		} finally {
-			if (request === productsRequest) productsBusy = false;
-		}
+		const rawLoad = (async (): Promise<ProductsLoadResult> => {
+			try {
+				const loaded = await listProducts();
+				if (!mounted || !active || request !== productsRequest) {
+					return { status: 'superseded' };
+				}
+				products = loaded;
+				productsState = 'ready';
+				return { status: 'success', products: loaded };
+			} catch (error) {
+				if (!mounted || !active || request !== productsRequest) {
+					return { status: 'superseded' };
+				}
+				productsState = products.length > 0 ? 'ready' : 'error';
+				productsError = errorMessage(error, 'load');
+				return { status: 'error' };
+			} finally {
+				if (request === productsRequest) productsBusy = false;
+			}
+		})();
+
+		const followedLoad: Promise<ProductsLoadResult> = rawLoad.then(
+			async (result): Promise<ProductsLoadResult> => {
+				if (result.status !== 'superseded') return result;
+				const latest = latestProductsLoad;
+				return latest && latest !== followedLoad ? latest : result;
+			}
+		);
+		latestProductsLoad = followedLoad;
+		return followedLoad;
 	}
 
 	function validateProduct(): { price: string; name: string } | null {
@@ -197,14 +220,15 @@
 				categories: selectedCategory ? [selectedCategory] : undefined
 			});
 
-			const reloaded = await loadProducts(false);
-			if (!reloaded) {
+			const reloadResult = await loadProducts(false);
+			if (reloadResult.status !== 'success') {
 				resetForm();
 				formMessage = file
 					? `Naidagdag ang ${validated.name}, pero hindi na-refresh ang listahan kaya hindi naikabit ang larawan. I-refresh ang mga ulam at subukan mula sa row.`
 					: `Naidagdag ang ${validated.name}, pero hindi na-refresh ang listahan. I-refresh para makita ang server state.`;
 				return;
 			}
+			const reloaded = reloadResult.products;
 
 			const matches = reloaded.filter((product) => product.name === validated.name);
 			const created = matches.length === 1 ? matches[0] : null;
@@ -217,11 +241,12 @@
 			if (file && created) {
 				try {
 					await uploadProductImage(created.product_id, file);
-					const refreshed = await loadProducts(false);
+					const refreshResult = await loadProducts(false);
 					resetForm();
-					formMessage = refreshed
-						? `Naidagdag ang ${validated.name} kasama ang larawan.`
-						: `Naidagdag ang ${validated.name} at naikabit ang larawan, pero hindi na-refresh ang listahan.`;
+					formMessage =
+						refreshResult.status === 'success'
+							? `Naidagdag ang ${validated.name} kasama ang larawan.`
+							: `Naidagdag ang ${validated.name} at naikabit ang larawan, pero hindi na-refresh ang listahan.`;
 					return;
 				} catch (error) {
 					rowErrors = {
@@ -300,8 +325,8 @@
 		clearRowFeedback(product.product_id);
 		try {
 			await uploadProductImage(product.product_id, file);
-			const refreshed = await loadProducts(false);
-			if (!refreshed) {
+			const refreshResult = await loadProducts(false);
+			if (refreshResult.status !== 'success') {
 				rowErrors = {
 					...rowErrors,
 					[product.product_id]: 'Naikabit ang larawan, pero hindi na-refresh ang listahan.'
@@ -341,8 +366,8 @@
 		clearRowFeedback(product.product_id);
 		try {
 			await deleteProductImage(product.product_id);
-			const refreshed = await loadProducts(false);
-			if (!refreshed) {
+			const refreshResult = await loadProducts(false);
+			if (refreshResult.status !== 'success') {
 				rowErrors = {
 					...rowErrors,
 					[product.product_id]: 'Naalis ang larawan, pero hindi na-refresh ang listahan.'

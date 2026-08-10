@@ -928,6 +928,50 @@ describe('Phase 3 admin menu and product images', () => {
 		expect(view.queryByText('Chicken adobo')).toBeNull();
 	});
 
+	it('uses the latest product refresh when create and row image mutations interleave', async () => {
+		const createRefresh = deferred<Product[]>();
+		const created = makeProduct({ product_id: 16, name: 'Sinigang na hipon', price: '125.50' });
+		const existingWithImage = makeProduct({
+			product_image_uri: 'https://images.test/adobo.webp'
+		});
+		const createdWithImage = makeProduct({
+			...created,
+			product_image_uri: 'https://images.test/sinigang.webp'
+		});
+		endpointMocks.listProducts
+			.mockResolvedValueOnce([product])
+			.mockImplementationOnce(() => createRefresh.promise)
+			.mockResolvedValueOnce([existingWithImage, created])
+			.mockResolvedValueOnce([existingWithImage, createdWithImage]);
+		const view = await renderMenu();
+		await fillProduct(view, 'Sinigang na hipon');
+		const formImage = new File(['new dish'], 'sinigang.webp', { type: 'image/webp' });
+		await fireEvent.change(view.getByLabelText(/^Larawan opsyonal/), {
+			target: { files: [formImage] }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(2));
+
+		const rowImage = new File(['existing dish'], 'adobo.webp', { type: 'image/webp' });
+		await fireEvent.change(view.getByLabelText('Ikabit ang larawan ng Chicken adobo'), {
+			target: { files: [rowImage] }
+		});
+		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(3));
+
+		createRefresh.resolve([product]);
+		await waitFor(() =>
+			expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(16, formImage)
+		);
+		expect(
+			await view.findByText('Naidagdag ang Sinigang na hipon kasama ang larawan.')
+		).not.toBeNull();
+		expect(view.queryByText(/hindi na-refresh ang listahan/i)).toBeNull();
+		expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(1, rowImage);
+		expect(view.getByAltText('Larawan ng Sinigang na hipon').getAttribute('src')).toBe(
+			'https://images.test/sinigang.webp'
+		);
+	});
+
 	it('blocks duplicate form submits while leaving product-row controls independent', async () => {
 		const pendingCreate = deferred<void>();
 		endpointMocks.createProduct.mockImplementationOnce(() => pendingCreate.promise);
