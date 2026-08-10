@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { resolve } from '$app/paths';
-	import type { RouteId } from '$app/types';
 	import { listProducts } from '$lib/api/endpoints';
 	import type { CartItem } from '$lib/api/types';
 	import Button from '$lib/components/shared/Button.svelte';
@@ -16,7 +15,7 @@
 	import { formatPeso, parsePriceToCents } from '$lib/utils/money';
 
 	type CatalogState = 'loading' | 'ready' | 'error';
-	const checkoutHref = resolve('/checkout' as RouteId);
+	const checkoutHref = resolve('/checkout');
 
 	let hydrated = false;
 	let catalogState: CatalogState = 'loading';

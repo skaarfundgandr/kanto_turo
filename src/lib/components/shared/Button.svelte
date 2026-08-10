@@ -8,6 +8,7 @@
 	export let disabled = false;
 	export let busy = false;
 	export let ariaLabel: string | undefined = undefined;
+	export let onclick: ((event: MouseEvent) => void) | undefined = undefined;
 
 	$: buttonClass = `btn btn--${variant}${size === 'small' ? ' btn--small' : ''}`;
 </script>
@@ -31,6 +32,7 @@
 		{disabled}
 		aria-label={ariaLabel}
 		aria-busy={busy ? 'true' : undefined}
+		{onclick}
 	>
 		<slot />
 	</button>

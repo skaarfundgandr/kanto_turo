@@ -12,6 +12,8 @@ export interface PollingOptions {
 	isVisible?: () => boolean;
 	/** Online predicate; default reads `navigator.onLine`. */
 	isOnline?: () => boolean;
+	/** Returns false while the caller has a higher-priority request in flight. */
+	shouldPoll?: () => boolean;
 	/** Returns true when a rejected fetch should stop polling permanently. */
 	shouldStopOnError?: (error: unknown) => boolean;
 }
@@ -36,6 +38,7 @@ export function startPolling<T>(
 	const intervalMs = options.intervalMs ?? 8000;
 	const isVisible = options.isVisible ?? defaultIsVisible;
 	const isOnline = options.isOnline ?? defaultIsOnline;
+	const shouldPoll = options.shouldPoll ?? (() => true);
 	const shouldStopOnError = options.shouldStopOnError;
 
 	let stopped = false;
@@ -59,6 +62,7 @@ export function startPolling<T>(
 
 	const tick = async () => {
 		if (stopped || tickInFlight) return;
+		if (!shouldPoll()) return;
 		if (!isVisible() || !isOnline()) return;
 		tickInFlight = true;
 		try {
