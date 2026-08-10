@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	buildPlan,
+	createClient,
+	imageFetchError,
 	normalizeDecimal,
 	parseArgs,
 	parseSelectedEnv,
 	rolePermissionPath,
 	validateBaseUrl,
-	validateSasImageUrls
+	validateSasImageUrls,
+	verifyImageResponse,
+	verifyImages
 } from '../scripts/seed_demo_api.mjs';
 
 const seedProductNames = [
@@ -30,14 +34,19 @@ function productsWithDistinctSasUrls() {
 }
 
 describe('demo API seed safety helpers', () => {
-	afterEach(() => vi.unstubAllEnvs());
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
+	});
 
 	it('defaults to a non-mutating dry run', () => {
 		vi.stubEnv('SEED_API_BASE_URL', '');
 		expect(parseArgs([])).toEqual({
 			help: false,
 			mode: 'dry-run',
-			baseUrl: 'http://127.0.0.1:3000/api/v1'
+			baseUrl: 'http://127.0.0.1:3000/api/v1',
+			repairCustomerRole: false
 		});
 	});
 
@@ -58,8 +67,22 @@ export ADMIN_PASSWORD='safe=value'
 		expect(() => normalizeDecimal('3.5 PHP')).toThrow('invalid decimal');
 	});
 
-	it('rejects base URLs that could expose credentials or query tokens', () => {
-		expect(validateBaseUrl('http://localhost:3000/api/v1/')).toBe('http://localhost:3000/api/v1');
+	it('requires the exact API root and secure transport away from loopback', () => {
+		expect(validateBaseUrl('http://localhost:3000/api/v1')).toBe('http://localhost:3000/api/v1');
+		expect(validateBaseUrl('http://127.0.0.1:3000/api/v1')).toBe('http://127.0.0.1:3000/api/v1');
+		expect(validateBaseUrl('http://[::1]:3000/api/v1')).toBe('http://[::1]:3000/api/v1');
+		expect(validateBaseUrl('https://api.example.test/api/v1')).toBe(
+			'https://api.example.test/api/v1'
+		);
+		expect(() => validateBaseUrl('http://api.example.test/api/v1')).toThrow(
+			'must use HTTPS unless its host is loopback'
+		);
+		expect(() => validateBaseUrl('https://api.example.test/api/v1/')).toThrow(
+			'path must be exactly /api/v1'
+		);
+		expect(() => validateBaseUrl('https://api.example.test/other')).toThrow(
+			'path must be exactly /api/v1'
+		);
 		expect(() => validateBaseUrl('https://user:secret@example.test/api/v1')).toThrow(
 			'must not contain credentials'
 		);
@@ -91,8 +114,8 @@ export ADMIN_PASSWORD='safe=value'
 		).toThrow('CUSTOMER role description conflicts');
 	});
 
-	it('repairs the default CUSTOMER permission through the numeric role endpoint', () => {
-		const plan = buildPlan({
+	it('requires explicit opt-in to repair a pre-existing CUSTOMER permission', () => {
+		const snapshot = {
 			roles: [
 				{
 					role_id: 42,
@@ -103,13 +126,35 @@ export ADMIN_PASSWORD='safe=value'
 			],
 			categories: [],
 			products: []
-		});
+		};
+		expect(() => buildPlan(snapshot)).toThrow('--repair-customer-role');
+		const plan = buildPlan(snapshot, true);
 
 		expect(plan.createRole).toBe(false);
 		expect(plan.setRolePermission).toBe(true);
 		expect(plan.customerRoleId).toBe(42);
 		expect(rolePermissionPath(plan.customerRoleId)).toBe('/roles/42/set_permission');
 		expect(() => rolePermissionPath('CUSTOMER')).toThrow('valid numeric role_id');
+		expect(parseArgs(['--apply', '--repair-customer-role']).repairCustomerRole).toBe(true);
+	});
+
+	it('preserves an existing product image instead of overwriting it', () => {
+		const plan = buildPlan({
+			roles: [],
+			categories: [],
+			products: [
+				{
+					product_id: 1,
+					name: 'Espresso',
+					description: 'Single shot of freshly pulled espresso',
+					price: '3.50',
+					product_image_uri:
+						'https://demo.blob.core.windows.net/menu/products/existing.png?sig=secret',
+					categories: [{ name: 'Drinks' }]
+				}
+			]
+		});
+		expect(plan.images.map((product) => product.name)).not.toContain('Espresso');
 	});
 
 	it('accepts distinct HTTPS Azure product object locations', () => {
@@ -135,5 +180,124 @@ export ADMIN_PASSWORD='safe=value'
 		products[1].product_image_uri =
 			'https://DEMO.blob.core.windows.net/menu/products/object-0.png?sig=different-secret';
 		expect(() => validateSasImageUrls(products)).toThrow('reuses another product image object');
+	});
+
+	it('uses redirect-error mode for API and object fetches', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+			void args;
+			return new Response(png, {
+				status: 200,
+				headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.byteLength) }
+			});
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		await createClient('https://api.example.test/api/v1', { value: null }).request('/categories');
+		await verifyImages(productsWithDistinctSasUrls());
+
+		expect(fetchMock).toHaveBeenCalledTimes(8);
+		for (const [, options] of fetchMock.mock.calls) {
+			expect(options).toEqual(expect.objectContaining({ redirect: 'error' }));
+		}
+	});
+
+	it('redacts image fetch failure details and retains only a programmatic cause', () => {
+		const cause = new Error(
+			'https://demo.blob.core.windows.net/menu/products/object.png?sig=secret-value'
+		);
+		const error = imageFetchError('Espresso', cause);
+		expect(error.message).toBe('Espresso image fetch failed');
+		expect(error.message).not.toContain('sig=');
+		expect(error.cause).toBe(cause);
+	});
+
+	it('validates bounded image bytes and rejects declared or streamed overflow', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		await expect(
+			verifyImageResponse(
+				new Response(png, {
+					headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.byteLength) }
+				}),
+				'Espresso'
+			)
+		).resolves.toBeUndefined();
+
+		await expect(
+			verifyImageResponse(
+				new Response(png, {
+					headers: { 'Content-Type': 'image/png', 'Content-Length': String(2 * 1024 * 1024 + 1) }
+				}),
+				'Espresso'
+			)
+		).rejects.toThrow('exceeds the 2 MiB');
+
+		const oversizedStream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(2 * 1024 * 1024));
+				controller.enqueue(new Uint8Array([0]));
+				controller.close();
+			}
+		});
+		await expect(
+			verifyImageResponse(
+				new Response(oversizedStream, { headers: { 'Content-Type': 'image/png' } }),
+				'Espresso'
+			)
+		).rejects.toThrow('exceeds the 2 MiB');
+	});
+
+	it('redacts stream read and cancel transport failures', async () => {
+		const readFailure = new Error('read failed for ?sig=secret-read');
+		const failingRead = new ReadableStream<Uint8Array>({
+			pull() {
+				throw readFailure;
+			}
+		});
+		const readError = await verifyImageResponse(
+			new Response(failingRead, { headers: { 'Content-Type': 'image/png' } }),
+			'Espresso'
+		).then(
+			() => null,
+			(error: unknown) => error
+		);
+		expect(readError).toBeInstanceOf(Error);
+		expect(readError).toMatchObject({
+			message: 'Espresso image stream failed',
+			cause: readFailure
+		});
+		expect((readError as Error).message).not.toContain('sig=');
+
+		const cancelFailure = new Error('cancel failed for ?sig=secret-cancel');
+		const failingCancel = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new Uint8Array(2 * 1024 * 1024 + 1));
+			},
+			cancel() {
+				throw cancelFailure;
+			}
+		});
+		const cancelError = await verifyImageResponse(
+			new Response(failingCancel, { headers: { 'Content-Type': 'image/png' } }),
+			'Espresso'
+		).then(
+			() => null,
+			(error: unknown) => error
+		);
+		expect(cancelError).toBeInstanceOf(Error);
+		expect(cancelError).toMatchObject({
+			message: 'Espresso image exceeds the 2 MiB verification limit',
+			cause: cancelFailure
+		});
+		expect((cancelError as Error).message).not.toContain('sig=');
+	});
+
+	it('rejects image content-type and magic-byte mismatches', async () => {
+		const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0x00]);
+		await expect(
+			verifyImageResponse(
+				new Response(jpeg, { headers: { 'Content-Type': 'image/png' } }),
+				'Espresso'
+			)
+		).rejects.toThrow('do not match the declared content type');
 	});
 });

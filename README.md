@@ -77,11 +77,15 @@ With the backend running and object storage connected, seed through the API from
 bun scripts/seed_demo_api.mjs
 bun scripts/seed_demo_api.mjs --apply
 bun scripts/seed_demo_api.mjs --verify-only
+# Only when intentionally promoting an existing empty/READ CUSTOMER role:
+bun scripts/seed_demo_api.mjs --apply --repair-customer-role
 ```
 
-The default command is read-only. `--apply` creates or validates the `CUSTOMER` role, three categories, seven products and their associations, then uploads only missing demo images. The helper is resumable and idempotent: a complete seed is a no-op, repairable missing associations/images are added, and conflicting names, descriptions, prices, permissions, or unexpected associations stop the run instead of overwriting data. `--verify-only` checks the completed public API state and fetches each distinct Azure Blob SAS image without printing its URL or query.
+The default command is read-only. `--apply` creates or validates the `CUSTOMER` role, three categories, seven products and their associations, then uploads only missing demo images. A CUSTOMER role created during that apply is assigned `WRITE` automatically. A pre-existing empty/`READ` CUSTOMER role is not silently promoted: the run stops unless the operator adds the narrowly scoped `--repair-customer-role` opt-in. Other conflicting permissions always stop the run.
 
-The helper uses `http://127.0.0.1:3000/api/v1` by default. Use `--base-url <api-root>` or `SEED_API_BASE_URL` for another API. Admin credentials come from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in the process or those two keys in the sibling backend `.env`; the script does not print credentials or bearer tokens. Do not place credentials or SAS URLs in commands, logs, or committed files.
+The helper is resumable and idempotent: a complete seed is a no-op, repairable missing associations/images are added, and conflicting names, descriptions, prices, permissions, or unexpected associations stop the run instead of overwriting data. Any non-empty existing product image is deliberately preserved rather than replaced with a fixture, because the script cannot prove ownership of that object. `--verify-only` checks the completed public API state and streams each distinct Azure Blob SAS image under the 2 MiB ceiling without printing its URL or query.
+
+The helper uses `http://127.0.0.1:3000/api/v1` by default. Use `--base-url <api-root>` or `SEED_API_BASE_URL` for another API. The path must be exactly `/api/v1`; HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`, while remote APIs require HTTPS. Redirects are rejected. Admin credentials come from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in the process or those two keys in the sibling backend `.env`; the script does not print credentials or bearer tokens. Do not place credentials or SAS URLs in commands, logs, or committed files.
 
 `bun run demo:seed` remains the direct-database bootstrap for a fresh database: it reads `DATABASE_URL`, runs sibling migrations, and applies `seed.sql` only when the database is unseeded. It does not upload object-storage images and intentionally refuses a partial database. The backend still creates the admin account from its environment when it starts.
 

@@ -24,7 +24,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** @typedef {'dry-run' | 'apply' | 'verify-only' | 'check-fixtures'} SeedMode */
-/** @typedef {{ help: boolean, mode: SeedMode, baseUrl: string }} CliOptions */
+/** @typedef {{ help: boolean, mode: SeedMode, baseUrl: string, repairCustomerRole: boolean }} CliOptions */
 /** @typedef {{ username: string, password: string }} AdminCredentials */
 /** @typedef {{ value: string | null }} TokenRef */
 /** @typedef {{ name: string, description: string }} SeedCategory */
@@ -128,6 +128,9 @@ Modes (choose one):
 Options:
   --base-url <url>   API root (default: SEED_API_BASE_URL or
                      http://127.0.0.1:3000/api/v1)
+  --repair-customer-role
+                     Explicitly allow an existing empty/READ CUSTOMER role
+                     to be promoted to WRITE
   --help             Show this help`);
 }
 
@@ -140,10 +143,13 @@ function parseArgs(argv) {
 	let mode = 'dry-run';
 	let modeWasSet = false;
 	let baseUrl = process.env.SEED_API_BASE_URL || 'http://127.0.0.1:3000/api/v1';
+	let repairCustomerRole = false;
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const argument = argv[index];
-		if (argument === '--help' || argument === '-h') return { help: true, mode, baseUrl };
+		if (argument === '--help' || argument === '-h') {
+			return { help: true, mode, baseUrl, repairCustomerRole };
+		}
 		if (['--dry-run', '--apply', '--verify-only', '--check-fixtures'].includes(argument)) {
 			if (modeWasSet) throw new Error('choose exactly one mode');
 			mode = /** @type {SeedMode} */ (argument.slice(2));
@@ -162,10 +168,19 @@ function parseArgs(argv) {
 			if (!baseUrl) throw new Error('--base-url requires a value');
 			continue;
 		}
+		if (argument === '--repair-customer-role') {
+			repairCustomerRole = true;
+			continue;
+		}
 		throw new Error(`unknown argument: ${argument}`);
 	}
 
-	return { help: false, mode, baseUrl: validateBaseUrl(baseUrl) };
+	return {
+		help: false,
+		mode,
+		baseUrl: validateBaseUrl(baseUrl),
+		repairCustomerRole
+	};
 }
 
 /** @param {string} value */
@@ -176,14 +191,18 @@ function validateBaseUrl(value) {
 	} catch {
 		throw new Error('API base URL is invalid');
 	}
-	if (!['http:', 'https:'].includes(parsed.protocol)) {
-		throw new Error('API base URL must use http or https');
-	}
 	if (parsed.username || parsed.password || parsed.search || parsed.hash) {
 		throw new Error('API base URL must not contain credentials, a query, or a fragment');
 	}
-	parsed.pathname = parsed.pathname.replace(/\/+$/, '');
-	return parsed.toString().replace(/\/$/, '');
+	if (parsed.pathname !== '/api/v1') {
+		throw new Error('API base URL path must be exactly /api/v1 with no trailing slash');
+	}
+	const hostname = parsed.hostname.toLowerCase();
+	const loopback = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+	if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) {
+		throw new Error('API base URL must use HTTPS unless its host is loopback');
+	}
+	return parsed.toString();
 }
 
 /**
@@ -298,9 +317,10 @@ function categoryNames(product) {
 
 /**
  * @param {Snapshot} snapshot
+ * @param {boolean} [allowCustomerRoleRepair]
  * @returns {SeedPlan}
  */
-function buildPlan(snapshot) {
+function buildPlan(snapshot, allowCustomerRoleRepair = false) {
 	const rolesByName = indexUniqueByName(snapshot.roles, 'roles');
 	const categoriesByName = indexUniqueByName(snapshot.categories, 'categories');
 	const productsByName = indexUniqueByName(snapshot.products, 'products');
@@ -328,6 +348,11 @@ function buildPlan(snapshot) {
 		const isUnconfigured =
 			permissions.length === 0 || (permissions.length === 1 && permissions[0] === 'READ');
 		if (isUnconfigured) {
+			if (!allowCustomerRoleRepair) {
+				throw new Error(
+					'pre-existing CUSTOMER role lacks WRITE; rerun with --repair-customer-role only if promotion is intended'
+				);
+			}
 			rolePermissionPath(role.role_id);
 			plan.setRolePermission = true;
 			plan.customerRoleId = Number(role.role_id);
@@ -430,6 +455,7 @@ function createClient(baseUrl, token) {
 				method,
 				headers,
 				body: json === undefined ? body : JSON.stringify(json),
+				redirect: 'error',
 				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
 			});
 		} catch (error) {
@@ -514,8 +540,9 @@ function reportPlan(plan) {
 /**
  * @param {ApiClient} client
  * @param {SeedPlan} initialPlan
+ * @param {boolean} allowCustomerRoleRepair
  */
-async function applyPlan(client, initialPlan) {
+async function applyPlan(client, initialPlan, allowCustomerRoleRepair) {
 	if (initialPlan.createRole) {
 		await client.request('/roles/create', {
 			method: 'POST',
@@ -527,7 +554,7 @@ async function applyPlan(client, initialPlan) {
 	}
 	if (initialPlan.setRolePermission) {
 		const roleSnapshot = await readSnapshot(client);
-		const rolePlan = buildPlan(roleSnapshot);
+		const rolePlan = buildPlan(roleSnapshot, allowCustomerRoleRepair || initialPlan.createRole);
 		if (rolePlan.createRole) throw new Error('API did not persist the newly created CUSTOMER role');
 		if (rolePlan.setRolePermission) {
 			await client.request(rolePermissionPath(rolePlan.customerRoleId), {
@@ -665,25 +692,144 @@ function validateSasImageUrls(products) {
 	return validated;
 }
 
+/**
+ * Creates a safe image-fetch failure whose visible message cannot include a
+ * signed URL or transport detail. The original failure remains available as
+ * the programmatic cause and is never printed by this script.
+ *
+ * @param {string} productName Product used to identify the failed check.
+ * @param {unknown} cause Original fetch failure retained for debugging callers.
+ * @returns {Error} Redacted error safe for the CLI's top-level reporter.
+ */
+function imageFetchError(productName, cause) {
+	return new Error(`${productName} image fetch failed`, { cause });
+}
+
+/**
+ * @param {string} productName Product used to identify the failed check.
+ * @param {unknown} cause Original stream failure retained for debugging callers.
+ * @returns {Error} Redacted error safe for the CLI's top-level reporter.
+ */
+function imageStreamError(productName, cause) {
+	return new Error(`${productName} image stream failed`, { cause });
+}
+
+/**
+ * @param {Uint8Array} prefix Initial response bytes used for type detection.
+ * @returns {'image/png' | 'image/jpeg' | 'image/webp' | null}
+ */
+function imageTypeFromMagic(prefix) {
+	if (
+		prefix.length >= 8 &&
+		prefix[0] === 0x89 &&
+		prefix[1] === 0x50 &&
+		prefix[2] === 0x4e &&
+		prefix[3] === 0x47 &&
+		prefix[4] === 0x0d &&
+		prefix[5] === 0x0a &&
+		prefix[6] === 0x1a &&
+		prefix[7] === 0x0a
+	) {
+		return 'image/png';
+	}
+	if (prefix.length >= 3 && prefix[0] === 0xff && prefix[1] === 0xd8 && prefix[2] === 0xff) {
+		return 'image/jpeg';
+	}
+	if (
+		prefix.length >= 12 &&
+		String.fromCharCode(...prefix.subarray(0, 4)) === 'RIFF' &&
+		String.fromCharCode(...prefix.subarray(8, 12)) === 'WEBP'
+	) {
+		return 'image/webp';
+	}
+	return null;
+}
+
+/**
+ * Verifies one fetched object without buffering more than the configured
+ * upload ceiling. It rejects empty bodies, oversized streams, malformed
+ * lengths, unsupported content types, and content-type/magic mismatches.
+ *
+ * @param {Response} response Successful object-storage response to inspect.
+ * @param {string} productName Product used in redacted validation errors.
+ * @returns {Promise<void>} Resolves only after the complete bounded stream passes.
+ */
+async function verifyImageResponse(response, productName) {
+	const contentType = (response.headers.get('content-type') || '')
+		.split(';', 1)[0]
+		.trim()
+		.toLowerCase();
+	if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
+		throw new Error(`${productName} object returned an unsupported image content type`);
+	}
+
+	const contentLength = response.headers.get('content-length');
+	if (contentLength !== null) {
+		if (!/^\d+$/.test(contentLength)) {
+			throw new Error(`${productName} image returned an invalid Content-Length`);
+		}
+		const declaredBytes = Number(contentLength);
+		if (!Number.isSafeInteger(declaredBytes) || declaredBytes > MAX_IMAGE_BYTES) {
+			throw new Error(`${productName} image exceeds the 2 MiB verification limit`);
+		}
+	}
+
+	if (!response.body) throw new Error(`${productName} image object is empty`);
+	const reader = response.body.getReader();
+	const prefix = new Uint8Array(12);
+	let prefixLength = 0;
+	let totalBytes = 0;
+	try {
+		while (true) {
+			let result;
+			try {
+				result = await reader.read();
+			} catch (error) {
+				throw imageStreamError(productName, error);
+			}
+			const { done, value } = result;
+			if (done) break;
+			totalBytes += value.byteLength;
+			if (totalBytes > MAX_IMAGE_BYTES) {
+				const validationMessage = `${productName} image exceeds the 2 MiB verification limit`;
+				try {
+					await reader.cancel();
+				} catch (error) {
+					throw new Error(validationMessage, { cause: error });
+				}
+				throw new Error(validationMessage);
+			}
+			if (prefixLength < prefix.length) {
+				const copyLength = Math.min(value.byteLength, prefix.length - prefixLength);
+				prefix.set(value.subarray(0, copyLength), prefixLength);
+				prefixLength += copyLength;
+			}
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	if (totalBytes === 0) throw new Error(`${productName} image object is empty`);
+	const detectedType = imageTypeFromMagic(prefix.subarray(0, prefixLength));
+	if (!detectedType || detectedType !== contentType) {
+		throw new Error(`${productName} image bytes do not match the declared content type`);
+	}
+}
+
 /** @param {ApiProduct[]} products */
 async function verifyImages(products) {
 	for (const { product, url } of validateSasImageUrls(products)) {
 		let response;
 		try {
-			response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+			response = await fetch(url, {
+				redirect: 'error',
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+			});
 		} catch (error) {
-			throw new Error(
-				`${product.name} image fetch failed: ${error instanceof Error ? error.message : 'network error'}`,
-				{ cause: error }
-			);
+			throw imageFetchError(product.name, error);
 		}
 		if (!response.ok) throw new Error(`${product.name} image returned HTTP ${response.status}`);
-		const contentType = response.headers.get('content-type') || '';
-		if (!contentType.toLowerCase().startsWith('image/')) {
-			throw new Error(`${product.name} object did not return an image content type`);
-		}
-		const bytes = await response.arrayBuffer();
-		if (bytes.byteLength === 0) throw new Error(`${product.name} image object is empty`);
+		await verifyImageResponse(response, product.name);
 		info(`verified SAS-hosted image: ${product.name}`);
 	}
 }
@@ -704,7 +850,7 @@ async function main() {
 	await login(client, credentials, token);
 
 	let snapshot = await readSnapshot(client);
-	let plan = buildPlan(snapshot);
+	let plan = buildPlan(snapshot, options.repairCustomerRole);
 	if (options.mode === 'dry-run') {
 		reportPlan(plan);
 		if (planCount(plan) === 0) await verifyImages(snapshot.products);
@@ -721,9 +867,9 @@ async function main() {
 		return;
 	}
 
-	await applyPlan(client, plan);
+	await applyPlan(client, plan, options.repairCustomerRole);
 	snapshot = await readSnapshot(client);
-	plan = buildPlan(snapshot);
+	plan = buildPlan(snapshot, options.repairCustomerRole);
 	if (planCount(plan) !== 0) throw new Error('seed apply finished with unresolved changes');
 	await verifyImages(snapshot.products);
 	info('demo API and object-storage seed is complete');
@@ -741,10 +887,14 @@ if (isMain) {
 
 export {
 	buildPlan,
+	createClient,
+	imageFetchError,
 	normalizeDecimal,
 	parseArgs,
 	parseSelectedEnv,
 	rolePermissionPath,
 	validateBaseUrl,
-	validateSasImageUrls
+	validateSasImageUrls,
+	verifyImageResponse,
+	verifyImages
 };
