@@ -264,7 +264,15 @@ describe('API client errors and endpoint policy', () => {
 
 	it('sends protected product JSON and image multipart requests to the generated paths', async () => {
 		setStoredToken('admin-token');
-		fetchMock.mockImplementation(async () => new Response('', { status: 200 }));
+		fetchMock.mockImplementation(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const path = new URL(String(input)).pathname;
+			const method = init?.method ?? 'GET';
+			if (path.endsWith('/products') && method === 'POST') {
+				return new Response('Product created', { status: 201 });
+			}
+			if (method === 'POST') return new Response('Product image uploaded', { status: 200 });
+			return new Response('Product image deleted', { status: 200 });
+		});
 		const product = {
 			name: 'Sinigang na Baboy',
 			description: 'Maasim at mainit',

@@ -151,6 +151,7 @@ export async function createProduct(product: CreateProductInput): Promise<void> 
 	await apiRequest('/products', {
 		method: 'POST',
 		body,
+		as: 'text',
 		auth: 'required'
 	});
 }
@@ -165,6 +166,7 @@ export async function uploadProductImage(
 	await apiRequest(`/products/${productId}/image`, {
 		method: 'POST',
 		body: formData,
+		as: 'text',
 		auth: 'required'
 	});
 }
@@ -172,6 +174,7 @@ export async function uploadProductImage(
 export async function deleteProductImage(productId: ProductImagePath['id']): Promise<void> {
 	await apiRequest(`/products/${productId}/image`, {
 		method: 'DELETE',
+		as: 'text',
 		auth: 'required'
 	});
 }
