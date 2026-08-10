@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/lib/api/errors';
 import type { Order, User } from '../src/lib/api/types';
 import RootLayout from '../src/routes/+layout.svelte';
+import ErrorPage from '../src/routes/+error.svelte';
 import AdminLayout from '../src/routes/admin/+layout.svelte';
 import AdminPage from '../src/routes/admin/+page.svelte';
 import LoginPage from '../src/routes/login/+page.svelte';
@@ -272,6 +273,12 @@ describe('Phase 6 admin domain and guard', () => {
 });
 
 describe('Phase 6 root auth redirect gate', () => {
+	it('keeps the error-page recovery link within the configured base path', () => {
+		const view = render(ErrorPage);
+
+		expect(view.getByRole('link', { name: 'Bumalik sa menu' }).getAttribute('href')).toBe('/base/');
+	});
+
 	it.each([
 		['/admin', true],
 		['/', false],
@@ -453,6 +460,28 @@ describe('Phase 6 order board and QR', () => {
 		);
 		const kpiGrid = view.container.querySelector('.kpi-grid') as HTMLElement;
 		expect(within(kpiGrid).getAllByText('—')).toHaveLength(3);
+	});
+
+	it('keeps filtered rows visible when the independent KPI fetch fails', async () => {
+		const view = await renderBoard();
+		endpointMocks.listOrders.mockImplementation(async (status?: string) => {
+			if (status === 'Pending') return [orders[0]!];
+			throw new ApiError(503, 'KPI failure.');
+		});
+
+		await fireEvent.change(view.getByRole('combobox', { name: 'Salain ang status ng order' }), {
+			target: { value: 'Pending' }
+		});
+
+		await waitFor(() =>
+			expect(
+				Array.from(view.container.querySelectorAll('tbody tr[data-order-id]')).map((row) =>
+					row.getAttribute('data-order-id')
+				)
+			).toEqual(['1'])
+		);
+		expect(view.container.querySelector('[data-kpi-stale="true"]')).not.toBeNull();
+		expect(view.getByText('Nakuha ang mga order, pero hindi ang KPI')).not.toBeNull();
 	});
 
 	it('uses status-safe wording for an empty completed filter', async () => {

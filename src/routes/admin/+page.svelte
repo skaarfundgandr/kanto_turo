@@ -141,17 +141,30 @@
 		try {
 			const requestedStatus = filter === 'all' ? undefined : filter;
 			let loaded: Order[];
-			let fullOrders: Order[];
+			let fullOrders: Order[] | null;
 			if (requestedStatus === undefined) {
 				loaded = await listOrders();
 				fullOrders = loaded;
 			} else {
-				[loaded, fullOrders] = await Promise.all([listOrders(requestedStatus), listOrders()]);
+				// Keep a successfully server-filtered ledger visible if its independent KPI fetch fails.
+				const [filteredResult, fullResult] = await Promise.allSettled([
+					listOrders(requestedStatus),
+					listOrders()
+				]);
+				if (filteredResult.status === 'rejected') throw filteredResult.reason;
+				loaded = filteredResult.value;
+				fullOrders = fullResult.status === 'fulfilled' ? fullResult.value : null;
 			}
 			if (!mounted || request !== boardRequest) return true;
 			orders = sortOrdersNewestFirst(loaded);
-			kpiOrders = sortOrdersNewestFirst(fullOrders);
-			kpiStale = false;
+			if (fullOrders) {
+				kpiOrders = sortOrdersNewestFirst(fullOrders);
+				kpiStale = false;
+			} else {
+				boardErrorTitle = 'Nakuha ang mga order, pero hindi ang KPI';
+				boardError = 'I-refresh muli para makuha ang pinakabagong mga bilang.';
+				kpiStale = true;
+			}
 			boardState = 'ready';
 			return true;
 		} catch (error) {

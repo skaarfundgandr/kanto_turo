@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Button from '$lib/components/shared/Button.svelte';
 	import InlineAlert from '$lib/components/shared/InlineAlert.svelte';
@@ -19,6 +20,6 @@
 		{page.error?.message ?? 'Something went wrong.'}
 	</InlineAlert>
 	<div class="error-actions">
-		<Button href="/" ariaLabel="Bumalik sa menu">Bumalik sa menu</Button>
+		<Button href={resolve('/')} ariaLabel="Bumalik sa menu">Bumalik sa menu</Button>
 	</div>
 </PaperPanel>
