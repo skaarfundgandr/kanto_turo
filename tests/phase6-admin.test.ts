@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/lib/api/errors';
-import type { Order, User } from '../src/lib/api/types';
+import type { Category, Order, Product, User } from '../src/lib/api/types';
 import RootLayout from '../src/routes/+layout.svelte';
 import ErrorPage from '../src/routes/+error.svelte';
 import AdminLayout from '../src/routes/admin/+layout.svelte';
@@ -22,11 +22,16 @@ const navigationMocks = vi.hoisted(() => ({
 
 const endpointMocks = vi.hoisted(() => ({
 	cancelOrder: vi.fn(),
+	createProduct: vi.fn(),
 	deleteOrder: vi.fn(),
+	deleteProductImage: vi.fn(),
 	getOrderingQr: vi.fn(),
+	listCategories: vi.fn(),
 	listOrders: vi.fn(),
+	listProducts: vi.fn(),
 	login: vi.fn(),
 	payOrder: vi.fn(),
+	uploadProductImage: vi.fn(),
 	updateOrderStatus: vi.fn()
 }));
 
@@ -93,14 +98,26 @@ const customerUser: User = {
 	role: { ...adminUser.role!, permissions: ['READ'] }
 };
 
-const product = {
+const category: Category = {
+	category_id: 1,
+	name: 'Ulam',
+	description: null,
+	created_at: null,
+	updated_at: null
+};
+
+const product: Product = {
 	product_id: 1,
 	name: 'Chicken adobo',
 	description: null,
 	price: '100.00',
 	product_image_uri: null,
-	categories: []
+	categories: [category]
 };
+
+function makeProduct(overrides: Partial<Product> = {}): Product {
+	return { ...product, ...overrides };
+}
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
@@ -189,24 +206,34 @@ beforeEach(() => {
 	authMocks.login.mockReset();
 	authMocks.login.mockImplementation(async () => authMocks.getState());
 	endpointMocks.listOrders.mockReset();
+	endpointMocks.listCategories.mockReset();
+	endpointMocks.listProducts.mockReset();
 	endpointMocks.cancelOrder.mockReset();
+	endpointMocks.createProduct.mockReset();
 	endpointMocks.deleteOrder.mockReset();
+	endpointMocks.deleteProductImage.mockReset();
 	endpointMocks.getOrderingQr.mockReset();
 	endpointMocks.payOrder.mockReset();
+	endpointMocks.uploadProductImage.mockReset();
 	endpointMocks.updateOrderStatus.mockReset();
 	navigationMocks.goto.mockResolvedValue(undefined);
 	navigationMocks.page.url = new URL('http://localhost/base/');
 	authMocks.resetAuthRedirectHandler();
 	authMocks.setState({ status: 'authenticated', user: adminUser });
 	endpointMocks.listOrders.mockResolvedValue(orders);
+	endpointMocks.listCategories.mockResolvedValue([category]);
+	endpointMocks.listProducts.mockResolvedValue([product]);
 	endpointMocks.cancelOrder.mockResolvedValue('cancelled');
+	endpointMocks.createProduct.mockResolvedValue(undefined);
 	endpointMocks.deleteOrder.mockResolvedValue('deleted');
+	endpointMocks.deleteProductImage.mockResolvedValue(undefined);
 	endpointMocks.getOrderingQr.mockResolvedValue(new Blob(['<svg />'], { type: 'image/svg+xml' }));
 	endpointMocks.payOrder.mockResolvedValue({
 		order_id: 1,
 		payment_status: 'paid',
 		message: 'Paid.'
 	});
+	endpointMocks.uploadProductImage.mockResolvedValue(undefined);
 	endpointMocks.updateOrderStatus.mockResolvedValue('updated');
 	setOnline(true);
 	setVisible(true);
@@ -669,5 +696,311 @@ describe('Phase 6 order board and QR', () => {
 		vi.advanceTimersByTime(30_000);
 		expect(endpointMocks.listOrders.mock.calls.length).toBe(initialCalls + 2);
 		view.unmount();
+	});
+});
+
+describe('Phase 3 admin menu and product images', () => {
+	async function renderMenu() {
+		const view = render(AdminPage);
+		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalled());
+		await view.findByRole('heading', { name: 'MGA ULAM SA BAHAY' });
+		return view;
+	}
+
+	async function fillProduct(view: Awaited<ReturnType<typeof renderMenu>>, productName: string) {
+		await fireEvent.input(view.getByLabelText('Pangalan ng ulam'), {
+			target: { value: productName }
+		});
+		await fireEvent.input(view.getByRole('textbox', { name: /^Presyo/ }), {
+			target: { value: '125.50' }
+		});
+	}
+
+	it('waits for authenticated state before loading categories and products', async () => {
+		authMocks.setState({ status: 'loading', user: null });
+		const view = render(AdminPage);
+		await vi.waitFor(() => expect(endpointMocks.listProducts).not.toHaveBeenCalled());
+		expect(endpointMocks.listCategories).not.toHaveBeenCalled();
+
+		authMocks.setState({ status: 'authenticated', user: adminUser });
+		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(1));
+		expect(endpointMocks.listCategories).toHaveBeenCalledTimes(1);
+		view.unmount();
+	});
+
+	it('loads categories and products independently and keeps the live order board available', async () => {
+		endpointMocks.listCategories.mockRejectedValueOnce(
+			new ApiError(503, 'Categories unavailable.')
+		);
+		const view = await renderMenu();
+
+		expect(await view.findByText('Chicken adobo')).not.toBeNull();
+		expect(view.getByRole('heading', { name: 'MGA ORDER' })).not.toBeNull();
+		expect(view.getByText('Hindi ma-load ang mga kategorya')).not.toBeNull();
+		expect(view.getByRole('button', { name: 'Subukan muli ang mga kategorya' })).not.toBeNull();
+	});
+
+	it('creates a product without an image, reloads the list, and resets the form', async () => {
+		const created = makeProduct({ product_id: 12, name: 'Laing', price: '125.50' });
+		endpointMocks.listProducts
+			.mockResolvedValueOnce([product])
+			.mockResolvedValueOnce([product, created]);
+		const view = await renderMenu();
+		await fillProduct(view, ' Laing ');
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+
+		await waitFor(() =>
+			expect(endpointMocks.createProduct).toHaveBeenCalledWith({
+				name: 'Laing',
+				price: '125.50',
+				description: undefined,
+				categories: ['Ulam']
+			})
+		);
+		expect(await view.findByText('Laing')).not.toBeNull();
+		expect(endpointMocks.uploadProductImage).not.toHaveBeenCalled();
+		expect((view.getByLabelText('Pangalan ng ulam') as HTMLInputElement).value).toBe('');
+		expect(view.getByText('Naidagdag ang Laing sa menu.')).not.toBeNull();
+	});
+
+	it('creates then uploads an optional image and refreshes server-backed state', async () => {
+		const created = makeProduct({ product_id: 13, name: 'Pinakbet', price: '125.50' });
+		const withImage = makeProduct({
+			...created,
+			product_image_uri: 'https://images.test/pinakbet.webp'
+		});
+		endpointMocks.listProducts
+			.mockResolvedValueOnce([product])
+			.mockResolvedValueOnce([product, created])
+			.mockResolvedValueOnce([product, withImage]);
+		const view = await renderMenu();
+		await fillProduct(view, 'Pinakbet');
+		const file = new File(['image'], 'pinakbet.webp', { type: 'image/webp' });
+		await fireEvent.change(view.getByLabelText(/^Larawan opsyonal/), {
+			target: { files: [file] }
+		});
+		const previewCall = objectUrlCreate.mock.calls.findIndex((call) => call[0] === file);
+		const previewUrl = objectUrlCreate.mock.results[previewCall]?.value;
+
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+
+		await waitFor(() => expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(13, file));
+		expect(await view.findByText('Naidagdag ang Pinakbet kasama ang larawan.')).not.toBeNull();
+		expect(view.getByAltText('Larawan ng Pinakbet').getAttribute('src')).toBe(
+			'https://images.test/pinakbet.webp'
+		);
+		expect(objectUrlRevoke).toHaveBeenCalledWith(previewUrl);
+	});
+
+	it('keeps a created product visible after image failure and supports row retry', async () => {
+		const created = makeProduct({ product_id: 14, name: 'Dinuguan', price: '125.50' });
+		const withImage = makeProduct({
+			...created,
+			product_image_uri: 'https://images.test/dinuguan.png'
+		});
+		endpointMocks.listProducts
+			.mockResolvedValueOnce([product])
+			.mockResolvedValueOnce([product, created])
+			.mockResolvedValueOnce([product, withImage]);
+		endpointMocks.uploadProductImage.mockRejectedValueOnce(
+			new ApiError(503, 'Storage unavailable.')
+		);
+		const view = await renderMenu();
+		await fillProduct(view, 'Dinuguan');
+		const original = new File(['image'], 'dinuguan.png', { type: 'image/png' });
+		await fireEvent.change(view.getByLabelText(/^Larawan opsyonal/), {
+			target: { files: [original] }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+
+		expect(
+			await view.findByText(/Naidagdag ang Dinuguan, pero hindi naikabit ang larawan/)
+		).not.toBeNull();
+		const row = view.container.querySelector('[data-admin-product-id="14"]') as HTMLElement;
+		expect(within(row).getByText(/object storage/)).not.toBeNull();
+		expect(endpointMocks.createProduct).toHaveBeenCalledTimes(1);
+
+		const retry = new File(['retry'], 'retry.png', { type: 'image/png' });
+		await fireEvent.change(within(row).getByLabelText('Ikabit ang larawan ng Dinuguan'), {
+			target: { files: [retry] }
+		});
+		await waitFor(() =>
+			expect(endpointMocks.uploadProductImage).toHaveBeenLastCalledWith(14, retry)
+		);
+		expect(endpointMocks.createProduct).toHaveBeenCalledTimes(1);
+	});
+
+	it('preserves form input and maps duplicate product conflicts inline', async () => {
+		endpointMocks.createProduct.mockRejectedValueOnce(new ApiError(409, 'Duplicate.'));
+		const view = await renderMenu();
+		await fillProduct(view, 'Chicken adobo');
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+
+		expect(
+			await view.findByText(/May ulam nang gumagamit ng pangalang ito \(409\)/)
+		).not.toBeNull();
+		expect((view.getByLabelText('Pangalan ng ulam') as HTMLInputElement).value).toBe(
+			'Chicken adobo'
+		);
+	});
+
+	it('retries a failed product list without blocking the create form', async () => {
+		endpointMocks.listProducts
+			.mockRejectedValueOnce(new ApiError(503, 'Unavailable.'))
+			.mockResolvedValueOnce([product]);
+		const view = render(AdminPage);
+
+		expect(await view.findByText('Hindi ma-load ang mga ulam')).not.toBeNull();
+		expect(view.getByLabelText('Pangalan ng ulam')).not.toBeNull();
+		await fireEvent.click(view.getByRole('button', { name: 'Subukan muli ang mga ulam' }));
+		expect(await view.findByText('Chicken adobo')).not.toBeNull();
+	});
+
+	it('ignores a stale initial product response after a create refresh wins', async () => {
+		const stale = deferred<Product[]>();
+		const created = makeProduct({ product_id: 15, name: 'Kare-kare', price: '125.50' });
+		endpointMocks.listProducts
+			.mockImplementationOnce(() => stale.promise)
+			.mockResolvedValueOnce([created]);
+		const view = render(AdminPage);
+		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(1));
+		await fireEvent.input(view.getByLabelText('Pangalan ng ulam'), {
+			target: { value: 'Kare-kare' }
+		});
+		await fireEvent.input(view.getByRole('textbox', { name: /^Presyo/ }), {
+			target: { value: '125.50' }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
+
+		expect(await view.findByText('Kare-kare')).not.toBeNull();
+		stale.resolve([product]);
+		await stale.promise;
+		await Promise.resolve();
+		expect(view.getByText('Kare-kare')).not.toBeNull();
+		expect(view.queryByText('Chicken adobo')).toBeNull();
+	});
+
+	it('blocks duplicate form submits while leaving product-row controls independent', async () => {
+		const pendingCreate = deferred<void>();
+		endpointMocks.createProduct.mockImplementationOnce(() => pendingCreate.promise);
+		const view = await renderMenu();
+		await fillProduct(view, 'Sisig');
+		const submit = view.getByRole('button', { name: 'Idagdag sa menu' });
+		await fireEvent.click(submit);
+		await fireEvent.click(submit);
+
+		expect(endpointMocks.createProduct).toHaveBeenCalledTimes(1);
+		expect((submit as HTMLButtonElement).disabled).toBe(true);
+		expect(
+			(view.getByLabelText('Ikabit ang larawan ng Chicken adobo') as HTMLInputElement).disabled
+		).toBe(false);
+		pendingCreate.resolve();
+		await waitFor(() => expect((submit as HTMLButtonElement).disabled).toBe(false));
+	});
+
+	it('keeps other product rows operable while one image mutation is pending', async () => {
+		const second = makeProduct({ product_id: 2, name: 'Sinigang' });
+		const firstUpload = deferred<void>();
+		endpointMocks.listProducts.mockResolvedValue([product, second]);
+		endpointMocks.uploadProductImage.mockImplementation((productId: number) =>
+			productId === 1 ? firstUpload.promise : Promise.resolve()
+		);
+		const view = await renderMenu();
+		const firstInput = view.getByLabelText(
+			'Ikabit ang larawan ng Chicken adobo'
+		) as HTMLInputElement;
+		const secondInput = view.getByLabelText('Ikabit ang larawan ng Sinigang') as HTMLInputElement;
+
+		await fireEvent.change(firstInput, {
+			target: { files: [new File(['one'], 'one.png', { type: 'image/png' })] }
+		});
+		await waitFor(() => expect(firstInput.disabled).toBe(true));
+		expect(secondInput.disabled).toBe(false);
+		await fireEvent.change(secondInput, {
+			target: { files: [new File(['two'], 'two.png', { type: 'image/png' })] }
+		});
+		await waitFor(() =>
+			expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(2, expect.any(File))
+		);
+
+		firstUpload.resolve();
+		await waitFor(() => expect(firstInput.disabled).toBe(false));
+	});
+
+	it('uploads, replaces, and deletes only the selected product image', async () => {
+		const withImage = makeProduct({ product_image_uri: 'https://images.test/old.png' });
+		const replaced = makeProduct({ product_image_uri: 'https://images.test/new.png' });
+		endpointMocks.listProducts
+			.mockResolvedValueOnce([withImage])
+			.mockResolvedValueOnce([replaced])
+			.mockResolvedValueOnce([product]);
+		const view = await renderMenu();
+		const replacement = new File(['replacement'], 'new.png', { type: 'image/png' });
+		await fireEvent.change(view.getByLabelText('Palitan ang larawan ng Chicken adobo'), {
+			target: { files: [replacement] }
+		});
+		await waitFor(() =>
+			expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(1, replacement)
+		);
+
+		await fireEvent.click(
+			view.getByRole('button', { name: 'Alisin ang larawan ng Chicken adobo' })
+		);
+		await waitFor(() => expect(endpointMocks.deleteProductImage).toHaveBeenCalledWith(1));
+		expect(window.confirm).toHaveBeenCalledWith(
+			'Alisin ang larawan ng Chicken adobo? Hindi ito maibabalik.'
+		);
+		await waitFor(() =>
+			expect(
+				(
+					view.getByRole('button', {
+						name: 'Alisin ang larawan ng Chicken adobo'
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(true)
+		);
+	});
+
+	it.each([
+		[400, 'Hindi tinanggap ang larawan'],
+		[401, 'Tapos na ang admin session'],
+		[403, 'Walang pahintulot ang account'],
+		[404, 'Hindi na makita ang ulam'],
+		[429, 'Masyadong maraming request'],
+		[503, 'Hindi available ang object storage']
+	])('maps row image upload status %s to actionable copy', async (status, message) => {
+		endpointMocks.uploadProductImage.mockRejectedValueOnce(new ApiError(status, 'Upload failed.'));
+		const view = await renderMenu();
+		const file = new File(['image'], 'dish.png', { type: 'image/png' });
+		await fireEvent.change(view.getByLabelText('Ikabit ang larawan ng Chicken adobo'), {
+			target: { files: [file] }
+		});
+
+		expect(await view.findByText(message, { exact: false })).not.toBeNull();
+	});
+
+	it('revokes form preview URLs on replacement, clear, and unmount', async () => {
+		const view = await renderMenu();
+		const input = view.getByLabelText(/^Larawan opsyonal/);
+		const first = new File(['one'], 'one.png', { type: 'image/png' });
+		const second = new File(['two'], 'two.png', { type: 'image/png' });
+		const third = new File(['three'], 'three.png', { type: 'image/png' });
+
+		await fireEvent.change(input, { target: { files: [first] } });
+		const firstCall = objectUrlCreate.mock.calls.findIndex((call) => call[0] === first);
+		const firstUrl = objectUrlCreate.mock.results[firstCall]?.value;
+		await fireEvent.change(input, { target: { files: [second] } });
+		const secondCall = objectUrlCreate.mock.calls.findIndex((call) => call[0] === second);
+		const secondUrl = objectUrlCreate.mock.results[secondCall]?.value;
+		expect(objectUrlRevoke).toHaveBeenCalledWith(firstUrl);
+
+		await fireEvent.click(view.getByRole('button', { name: 'Alisin ang napiling larawan' }));
+		expect(objectUrlRevoke).toHaveBeenCalledWith(secondUrl);
+
+		await fireEvent.change(input, { target: { files: [third] } });
+		const thirdCall = objectUrlCreate.mock.calls.findIndex((call) => call[0] === third);
+		const thirdUrl = objectUrlCreate.mock.results[thirdCall]?.value;
+		view.unmount();
+		expect(objectUrlRevoke).toHaveBeenCalledWith(thirdUrl);
 	});
 });

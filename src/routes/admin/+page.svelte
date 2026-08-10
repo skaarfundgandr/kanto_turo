@@ -12,6 +12,7 @@
 		updateOrderStatus
 	} from '$lib/api/endpoints';
 	import type { Order, OrderStatus } from '$lib/api/types';
+	import AdminMenuBoard from '$lib/components/admin/AdminMenuBoard.svelte';
 	import Button from '$lib/components/shared/Button.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import InlineAlert from '$lib/components/shared/InlineAlert.svelte';
@@ -680,4 +681,6 @@
 			</p>
 		</aside>
 	</div>
+
+	<AdminMenuBoard active={currentAuthStatus === 'authenticated'} />
 </section>
