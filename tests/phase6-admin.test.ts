@@ -368,7 +368,7 @@ describe('Phase 6 order board and QR', () => {
 		return view;
 	}
 
-	it('keeps desktop table and mobile cards data-equivalent, filters with exact backend values, and shows KPIs', async () => {
+	it('renders the Design2 KPI, ledger, tabs, and QR composition with exact backend filters', async () => {
 		endpointMocks.listOrders.mockImplementation(async (status?: string) =>
 			status ? orders.filter((order) => order.status === status) : orders
 		);
@@ -376,19 +376,26 @@ describe('Phase 6 order board and QR', () => {
 		const tableRows = Array.from(view.container.querySelectorAll('tbody tr[data-order-id]'));
 		expect(tableRows.map((row) => row.getAttribute('data-order-id'))).toEqual(['1', '2', '3']);
 		expect(view.container.querySelector('th[scope="col"]')).not.toBeNull();
-		expect(view.container.querySelector('[data-order-card-id="1"]')?.textContent).toContain(
-			'Chicken adobo'
-		);
+		expect(within(tableRows[0] as HTMLElement).getByText('Chicken adobo ×1')).not.toBeNull();
 		expect(view.getAllByText('₱250.50')).not.toHaveLength(0);
-		expect(view.getByText('Orders ngayong araw')).not.toBeNull();
+		expect(view.getByText('Order ngayong araw')).not.toBeNull();
 		expect(view.getByText('1')).not.toBeNull();
-		expect(view.getByRole('article', { name: 'Order #1' })).not.toBeNull();
 		expect(
 			view.container.querySelector('tbody tr[data-order-id="1"] time')?.getAttribute('datetime')
 		).toBe(formatAdminDateTime(orders[0]?.created_at));
+		expect(view.getByRole('region', { name: 'Scrollable na ledger ng mga order' })).toHaveProperty(
+			'tabIndex',
+			0
+		);
 		expect(
-			view.container.querySelector('[data-order-card-id="1"] time')?.getAttribute('datetime')
-		).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+			Array.from(view.container.querySelectorAll('.admin-ledger thead th')).map((header) =>
+				header.textContent?.trim()
+			)
+		).toEqual(['Oras', '#', 'Laman', 'Kabuuan', 'Kusina', 'Bayad', 'Aksyon']);
+		expect(view.container.querySelector('.admin-workspace .admin-qr-panel')).not.toBeNull();
+		expect(view.container.querySelector('[data-order-card-id]')).toBeNull();
+		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+		expect(view.getByRole('heading', { level: 1, name: 'MGA ORDER' })).not.toBeNull();
 		const advanceLabel = within(
 			view.container.querySelector('tbody tr[data-order-id="1"]') as HTMLElement
 		)
@@ -396,11 +403,11 @@ describe('Phase 6 order board and QR', () => {
 			.getAttribute('aria-label');
 		expect(advanceLabel).not.toContain('→');
 
-		const filter = view.getByRole('combobox', { name: 'Salain ang status ng order' });
-		await fireEvent.change(filter, { target: { value: 'Pending' } });
+		const filter = view.getByRole('button', { name: 'Tinanggap' });
+		await fireEvent.click(filter);
 		await waitFor(() => expect(endpointMocks.listOrders).toHaveBeenCalledWith('Pending'));
 		expect(endpointMocks.listOrders).toHaveBeenCalledWith();
-		expect((filter as HTMLSelectElement).value).toBe('Pending');
+		expect(filter.getAttribute('aria-pressed')).toBe('true');
 		await waitFor(() =>
 			expect(
 				Array.from(view.container.querySelectorAll('tbody tr[data-order-id]')).map((row) =>
@@ -425,9 +432,8 @@ describe('Phase 6 order board and QR', () => {
 			return unfilteredCalls === 1 ? pendingKpiOrders.promise : latestAllOrders.promise;
 		});
 
-		const filter = view.getByRole('combobox', { name: 'Salain ang status ng order' });
-		await fireEvent.change(filter, { target: { value: 'Pending' } });
-		await fireEvent.change(filter, { target: { value: 'all' } });
+		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
+		await fireEvent.click(view.getByRole('button', { name: 'Lahat' }));
 
 		latestAllOrders.resolve([orders[1]!]);
 		await waitFor(() =>
@@ -451,9 +457,7 @@ describe('Phase 6 order board and QR', () => {
 		const view = await renderBoard();
 		endpointMocks.listOrders.mockRejectedValueOnce(new ApiError(503, 'Filtered failure.'));
 
-		await fireEvent.change(view.getByRole('combobox', { name: 'Salain ang status ng order' }), {
-			target: { value: 'Pending' }
-		});
+		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
 
 		await waitFor(() =>
 			expect(view.container.querySelector('[data-kpi-stale="true"]')).not.toBeNull()
@@ -469,9 +473,7 @@ describe('Phase 6 order board and QR', () => {
 			throw new ApiError(503, 'KPI failure.');
 		});
 
-		await fireEvent.change(view.getByRole('combobox', { name: 'Salain ang status ng order' }), {
-			target: { value: 'Pending' }
-		});
+		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
 
 		await waitFor(() =>
 			expect(
@@ -490,9 +492,7 @@ describe('Phase 6 order board and QR', () => {
 			status === 'Completed' ? [] : orders
 		);
 
-		await fireEvent.change(view.getByRole('combobox', { name: 'Salain ang status ng order' }), {
-			target: { value: 'Completed' }
-		});
+		await fireEvent.click(view.getByRole('button', { name: 'Nakuha na' }));
 
 		expect(
 			await view.findByRole('heading', { name: 'Walang order sa status na Nakuha na' })
@@ -597,7 +597,7 @@ describe('Phase 6 order board and QR', () => {
 		const view = await renderBoard();
 		endpointMocks.getOrderingQr.mockRejectedValueOnce(new ApiError(status, 'QR failure.'));
 
-		await fireEvent.click(view.getByRole('button', { name: 'I-refresh ang QR' }));
+		await fireEvent.click(view.getByRole('button', { name: 'Kumuha ng bagong QR' }));
 		expect(await view.findByText(message, { exact: false })).not.toBeNull();
 	});
 
@@ -606,7 +606,7 @@ describe('Phase 6 order board and QR', () => {
 		endpointMocks.getOrderingQr.mockClear();
 		setOnline(false);
 
-		await fireEvent.click(view.getByRole('button', { name: 'I-refresh ang QR' }));
+		await fireEvent.click(view.getByRole('button', { name: 'Kumuha ng bagong QR' }));
 		expect(
 			await view.findByText('Walang koneksyon. Subukan muli kapag online na.', { exact: false })
 		).not.toBeNull();
@@ -618,7 +618,7 @@ describe('Phase 6 order board and QR', () => {
 		await waitFor(() => expect(objectUrlCreate).toHaveBeenCalledTimes(1));
 		const firstUrl = objectUrlCreate.mock.results[0]?.value;
 
-		await fireEvent.click(view.getByRole('button', { name: 'I-refresh ang QR' }));
+		await fireEvent.click(view.getByRole('button', { name: 'Kumuha ng bagong QR' }));
 		await waitFor(() => expect(objectUrlCreate).toHaveBeenCalledTimes(2));
 		const secondUrl = objectUrlCreate.mock.results[1]?.value;
 		expect(objectUrlRevoke).toHaveBeenCalledWith(firstUrl);

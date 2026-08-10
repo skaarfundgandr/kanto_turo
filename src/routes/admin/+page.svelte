@@ -26,8 +26,8 @@
 		ADMIN_POLL_INTERVAL_MS,
 		adminOrderFilterLabel,
 		deriveAdminKpis,
-		formatAdminDate,
 		formatAdminDateTime,
+		parseAdminDate,
 		sortOrdersNewestFirst,
 		type AdminOrderFilter
 	} from '$lib/utils/admin-orders';
@@ -37,6 +37,11 @@
 
 	type BoardState = 'loading' | 'ready' | 'error';
 	type RowAction = 'advance' | 'pay' | 'cancel' | 'delete';
+	const ADMIN_TIME_FORMATTER = new Intl.DateTimeFormat('fil-PH', {
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false
+	});
 
 	let filter: AdminOrderFilter = 'all';
 	let orders: Order[] = [];
@@ -283,12 +288,6 @@
 		}
 	}
 
-	function nextLabel(status: OrderStatus | null): string {
-		if (status === null) return '';
-		const next = nextOrderStatus(status);
-		return next ? `→ ${ORDER_STATUS_LABELS[next]}` : '';
-	}
-
 	function actionAriaLabel(action: RowAction, order: Order): string {
 		switch (action) {
 			case 'advance': {
@@ -306,8 +305,14 @@
 		}
 	}
 
-	function formatRowDate(order: Order): string {
-		return formatAdminDate(order.created_at ?? order.updated_at);
+	function formatRowTime(order: Order): string {
+		const date = parseAdminDate(order.created_at ?? order.updated_at);
+		if (!date) return '—';
+		return ADMIN_TIME_FORMATTER.format(date);
+	}
+
+	function formatOrderNumber(orderId: number): string {
+		return String(orderId).padStart(4, '0');
 	}
 
 	function orderTotalCents(order: Order): number {
@@ -321,8 +326,8 @@
 	function orderItemsLabel(order: Order): string {
 		if (order.products.length === 0) return 'Walang item';
 		return order.products
-			.map((item) => `${item.product?.name ?? 'Putahe'} × ${item.quantity}`)
-			.join(', ');
+			.map((item) => `${item.product?.name ?? 'Putahe'} ×${item.quantity}`)
+			.join(' · ');
 	}
 
 	function emptyOrdersTitle(): string {
@@ -421,306 +426,224 @@
 </svelte:head>
 
 <section class="admin-board" aria-labelledby="admin-title">
-	<header class="admin-board__header">
-		<div>
-			<p class="eyebrow">Kusina · live board</p>
-			<h1 class="hero__title" id="admin-title">
-				<span class="hero__word">ORDER</span>
-				<span class="hero__word hero__word--hot">BOARD.</span>
-			</h1>
-			<p class="hero__note">Mga order lang mula sa server. Walang hula sa status.</p>
-		</div>
-		<div class="admin-board__header-actions">
-			<Button variant="ghost" href={resolve('/')}>Menu</Button>
-			<Button variant="quiet" onclick={logoutAndLeave}>Mag-logout</Button>
-		</div>
-	</header>
-
 	<section
 		class="kpi-grid"
-		aria-label="Mga pangunahing bilang"
+		aria-label="Buod ngayong araw"
 		aria-busy={boardBusy}
 		data-kpi-stale={kpiStale}
 	>
 		<KpiCard
-			label="Orders ngayong araw"
+			label="Order ngayong araw"
 			value={kpiStale ? '—' : String(kpis.todayOrders)}
 			detail={kpiStale ? 'Hindi napapanahon; i-refresh ang board.' : ''}
 		/>
 		<KpiCard
-			label="Bayad na revenue"
+			label="Benta (bayad na)"
 			value={kpiStale ? '—' : formatPeso(kpis.paidRevenueCents)}
 			detail={kpiStale ? 'Hindi napapanahon; i-refresh ang board.' : ''}
 		/>
 		<KpiCard
-			label="Hindi bayad o failed"
+			label="Hinihintay ang bayad"
 			value={kpiStale ? '—' : String(kpis.unpaidOrFailed)}
 			detail={kpiStale ? 'Hindi napapanahon; i-refresh ang board.' : ''}
 		/>
 	</section>
 
-	<section class="admin-filter-panel paper-panel" aria-labelledby="filter-title">
-		<div class="admin-filter-panel__copy">
-			<p class="eyebrow" id="filter-title">Salain ang ledger</p>
-			<p>Pinipili ang eksaktong status na ipinapadala sa backend.</p>
-		</div>
-		<div class="admin-filter-panel__controls">
-			<label for="order-status-filter">Status ng order</label>
-			<select
-				id="order-status-filter"
-				aria-label="Salain ang status ng order"
-				value={filter}
-				onchange={(event) => selectFilter((event.currentTarget as HTMLSelectElement).value)}
-			>
-				{#each ADMIN_ORDER_FILTERS as option (option)}
-					<option value={option}>{adminOrderFilterLabel(option)}</option>
-				{/each}
-			</select>
-			<Button
-				variant="quiet"
-				size="small"
-				disabled={boardBusy}
-				busy={boardBusy}
-				onclick={refreshBoard}
-			>
-				{boardBusy ? 'Nagre-refresh...' : 'I-refresh'}
-			</Button>
-		</div>
-	</section>
-
-	{#if boardError}
-		<InlineAlert tone="error" title={boardErrorTitle}>{boardError}</InlineAlert>
-	{/if}
-
-	<section class="admin-orders" aria-labelledby="orders-title" aria-busy={boardBusy}>
-		<div class="section-heading">
-			<PaintedSign id="orders-title" text="MGA ORDER" delay="0.08s" />
-			<span class="section-sidenote">pinakabago muna</span>
-		</div>
-
-		{#if boardState === 'loading' && sortedOrders.length === 0}
-			<Skeleton lines={7} label="Naglo-load ang mga order" />
-		{:else if boardState === 'error' && sortedOrders.length === 0}
-			<PaperPanel>
-				<EmptyState
-					title="Hindi pa mabuksan ang ledger"
-					description="Subukan muli kapag handa na ang kusina connection."
-					titleId="orders-error-title"
-				/>
-				<div class="admin-state__action">
-					<Button variant="ghost" onclick={refreshBoard}>Subukan muli</Button>
+	<div class="admin-workspace">
+		<section class="admin-orders" aria-labelledby="admin-title" aria-busy={boardBusy}>
+			<header class="admin-orders__header">
+				<div class="section-heading">
+					<PaintedSign id="admin-title" text="MGA ORDER" level="h1" delay="0.08s" />
+					<span class="section-sidenote">live board ng kusina</span>
 				</div>
-			</PaperPanel>
-		{:else if sortedOrders.length === 0}
-			<PaperPanel>
-				<EmptyState
-					title={emptyOrdersTitle()}
-					description="Walang row na bumalik mula sa kasalukuyang filter."
-					titleId="orders-empty-title"
-				/>
-			</PaperPanel>
-		{:else}
-			<div class="admin-ledger-wrap">
-				<table class="admin-ledger">
-					<caption class="sr-only">Mga order, pinakabago muna</caption>
-					<thead>
-						<tr>
-							<th scope="col">Order</th>
-							<th scope="col">Mga putahe</th>
-							<th scope="col">Status</th>
-							<th scope="col">Bayad</th>
-							<th scope="col">Total</th>
-							<th scope="col">Aksyon</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each sortedOrders as order (order.order_id)}
-							{@const nextStatus = order.status === null ? null : nextOrderStatus(order.status)}
-							{@const rowBusy = busyRows[order.order_id] === true}
-							<tr data-order-id={order.order_id}>
-								<td>
-									<strong>#{order.order_id}</strong>
-									<time datetime={formatAdminDateTime(order.created_at ?? order.updated_at)}
-										>{formatRowDate(order)}</time
-									>
-								</td>
-								<td>{orderItemsLabel(order)}</td>
-								<td>
-									{#if order.status}
-										<StatusChip status={order.status} />
-									{:else}
-										<span class="admin-unknown-status">Walang status</span>
-									{/if}
-								</td>
-								<td><StatusChip kind="payment" status={order.payment_status} /></td>
-								<td class="admin-ledger__total">{formatPeso(orderTotalCents(order))}</td>
-								<td class="admin-ledger__actions">
-									<div class="admin-row-actions">
-										{#if nextStatus}
+				<Button variant="quiet" size="small" onclick={logoutAndLeave}>Mag-logout</Button>
+			</header>
+
+			<div class="admin-filter-row">
+				<nav class="admin-status-tabs" aria-label="Salain ayon sa status ng kusina">
+					{#each ADMIN_ORDER_FILTERS as option (option)}
+						<button
+							class="admin-status-tab"
+							type="button"
+							aria-pressed={filter === option}
+							onclick={() => selectFilter(option)}
+						>
+							{adminOrderFilterLabel(option)}
+						</button>
+					{/each}
+				</nav>
+				<Button
+					variant="quiet"
+					size="small"
+					disabled={boardBusy}
+					busy={boardBusy}
+					onclick={refreshBoard}
+				>
+					{boardBusy ? 'Nagre-refresh...' : 'I-refresh'}
+				</Button>
+			</div>
+
+			{#if boardError}
+				<InlineAlert tone="error" title={boardErrorTitle}>{boardError}</InlineAlert>
+			{/if}
+
+			{#if boardState === 'loading' && sortedOrders.length === 0}
+				<Skeleton lines={7} label="Naglo-load ang mga order" />
+			{:else if boardState === 'error' && sortedOrders.length === 0}
+				<PaperPanel>
+					<EmptyState
+						title="Hindi pa mabuksan ang ledger"
+						description="Subukan muli kapag handa na ang kusina connection."
+						titleId="orders-error-title"
+					/>
+					<div class="admin-state__action">
+						<Button variant="ghost" onclick={refreshBoard}>Subukan muli</Button>
+					</div>
+				</PaperPanel>
+			{:else if sortedOrders.length === 0}
+				<PaperPanel>
+					<EmptyState
+						title={emptyOrdersTitle()}
+						description="Walang row na bumalik mula sa kasalukuyang filter."
+						titleId="orders-empty-title"
+					/>
+				</PaperPanel>
+			{:else}
+				<p class="admin-ledger-hint" id="admin-ledger-hint">
+					I-scroll pahalang para makita ang status, bayad, at mga aksyon.
+				</p>
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to horizontal overflow) -->
+				<div
+					class="admin-ledger-wrap"
+					role="region"
+					aria-label="Scrollable na ledger ng mga order"
+					aria-describedby="admin-ledger-hint"
+					tabindex="0"
+				>
+					<table class="admin-ledger">
+						<caption class="sr-only">Mga order, pinakabago muna</caption>
+						<thead>
+							<tr>
+								<th scope="col">Oras</th>
+								<th scope="col">#</th>
+								<th scope="col">Laman</th>
+								<th scope="col">Kabuuan</th>
+								<th scope="col">Kusina</th>
+								<th scope="col">Bayad</th>
+								<th scope="col">Aksyon</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each sortedOrders as order (order.order_id)}
+								{@const nextStatus = order.status === null ? null : nextOrderStatus(order.status)}
+								{@const rowBusy = busyRows[order.order_id] === true}
+								<tr data-order-id={order.order_id}>
+									<td class="admin-ledger__time">
+										<time datetime={formatAdminDateTime(order.created_at ?? order.updated_at)}
+											>{formatRowTime(order)}</time
+										>
+									</td>
+									<td class="admin-ledger__number">{formatOrderNumber(order.order_id)}</td>
+									<td>{orderItemsLabel(order)}</td>
+									<td class="admin-ledger__total">{formatPeso(orderTotalCents(order))}</td>
+									<td>
+										{#if order.status}
+											<StatusChip status={order.status} />
+										{:else}
+											<span class="admin-unknown-status">Walang status</span>
+										{/if}
+									</td>
+									<td><StatusChip kind="payment" status={order.payment_status} /></td>
+									<td class="admin-ledger__actions">
+										<div class="admin-row-actions">
+											{#if nextStatus}
+												<button
+													class="admin-icon-button"
+													type="button"
+													disabled={rowBusy}
+													aria-busy={rowBusy}
+													aria-label={actionAriaLabel('advance', order)}
+													title={actionAriaLabel('advance', order)}
+													onclick={() => void runRowAction(order, 'advance')}
+												>
+													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+														<path
+															d="M4 12.5c5-.7 9-.3 14.5-.7M15 7.5c1.8 1.7 3 2.9 4.5 4.5-1.5 1.6-2.9 2.9-4.5 4.3"
+														/>
+													</svg>
+												</button>
+											{/if}
+											{#if order.status !== 'Cancelled' && order.payment_status !== 'paid'}
+												<button
+													class="admin-icon-button"
+													type="button"
+													disabled={rowBusy}
+													aria-busy={rowBusy}
+													aria-label={actionAriaLabel('pay', order)}
+													title={actionAriaLabel('pay', order)}
+													onclick={() => void runRowAction(order, 'pay')}
+												>
+													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+														<path
+															d="M7.5 4.5l9.3-.3M12 4.3V14M6 9.5c3.5-.7 8-.3 12-.7-2.5 4.2-7.5 6.7-11.5 10.5M12 15.5c2 1.3 3.8 2.5 6 4"
+														/>
+													</svg>
+												</button>
+											{/if}
+											{#if order.status && canCancelOrder(order.status)}
+												<button
+													class="admin-icon-button admin-icon-button--danger"
+													type="button"
+													disabled={rowBusy}
+													aria-busy={rowBusy}
+													aria-label={actionAriaLabel('cancel', order)}
+													title={actionAriaLabel('cancel', order)}
+													onclick={() => void runRowAction(order, 'cancel')}
+												>
+													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+														<path
+															d="M6.5 6.8c3.5 3.2 7.5 7.4 11 10.5M17.3 6.5c-3.5 3.7-7 7.5-10.5 11"
+														/>
+													</svg>
+												</button>
+											{/if}
 											<button
-												class="btn btn--enamel btn--small"
+												class="admin-icon-button admin-icon-button--danger"
 												type="button"
 												disabled={rowBusy}
 												aria-busy={rowBusy}
-												aria-label={actionAriaLabel('advance', order)}
-												onclick={() => void runRowAction(order, 'advance')}
+												aria-label={actionAriaLabel('delete', order)}
+												title={actionAriaLabel('delete', order)}
+												onclick={() => void runRowAction(order, 'delete')}
 											>
-												{nextLabel(order.status)}
+												<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+													<path
+														d="M5 7c4.5-.4 9.5-.3 14 .1M9.5 6.8l.5-3 4.2.2.5 2.9M7 7.5 8.2 20h7.7L17 7.4M10.5 10.5l.5 6.5M14 10.4l-.4 6.6"
+													/>
+												</svg>
 											</button>
-										{/if}
-										{#if order.status !== 'Cancelled' && order.payment_status !== 'paid'}
-											<button
-												class="btn btn--ghost btn--small"
-												type="button"
-												disabled={rowBusy}
-												aria-label={actionAriaLabel('pay', order)}
-												onclick={() => void runRowAction(order, 'pay')}
-											>
-												Markahang bayad
-											</button>
-										{/if}
-										{#if order.status && canCancelOrder(order.status)}
-											<button
-												class="btn btn--quiet btn--small"
-												type="button"
-												disabled={rowBusy}
-												aria-label={actionAriaLabel('cancel', order)}
-												onclick={() => void runRowAction(order, 'cancel')}
-											>
-												Kanselahin
-											</button>
-										{/if}
-										<button
-											class="btn btn--quiet btn--small admin-delete-action"
-											type="button"
-											disabled={rowBusy}
-											aria-label={actionAriaLabel('delete', order)}
-											onclick={() => void runRowAction(order, 'delete')}
-										>
-											Burahin
-										</button>
-									</div>
-									{#if rowErrors[order.order_id]}
-										<div class="admin-row-error">
-											<InlineAlert tone="error" title={`Order #${order.order_id}`}>
-												{rowErrors[order.order_id]}
-											</InlineAlert>
 										</div>
-									{/if}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+										{#if rowErrors[order.order_id]}
+											<div class="admin-row-error">
+												<InlineAlert tone="error" title={`Order #${order.order_id}`}>
+													{rowErrors[order.order_id]}
+												</InlineAlert>
+											</div>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+			<p class="admin-ledger-note">
+				Ang “Bayad” ay payment status mula sa server: unpaid, paid, o failed.
+			</p>
+		</section>
 
-			<section class="admin-order-cards" aria-label="Mga order sa mobile">
-				{#each sortedOrders as order (order.order_id)}
-					{@const nextStatus = order.status === null ? null : nextOrderStatus(order.status)}
-					{@const rowBusy = busyRows[order.order_id] === true}
-					<article
-						class="admin-order-card"
-						data-order-card-id={order.order_id}
-						aria-label={`Order #${order.order_id}`}
-					>
-						<header class="admin-order-card__header">
-							<div>
-								<span class="eyebrow">Order</span>
-								<h2>#{order.order_id}</h2>
-								<time datetime={formatAdminDateTime(order.created_at ?? order.updated_at)}
-									>{formatRowDate(order)}</time
-								>
-							</div>
-							<strong class="admin-order-card__total">{formatPeso(orderTotalCents(order))}</strong>
-						</header>
-						<dl class="admin-order-card__facts">
-							<div>
-								<dt>Mga putahe</dt>
-								<dd>{orderItemsLabel(order)}</dd>
-							</div>
-							<div>
-								<dt>Status</dt>
-								<dd>
-									{#if order.status}
-										<StatusChip status={order.status} />
-									{:else}
-										<span class="admin-unknown-status">Walang status</span>
-									{/if}
-								</dd>
-							</div>
-							<div>
-								<dt>Bayad</dt>
-								<dd><StatusChip kind="payment" status={order.payment_status} /></dd>
-							</div>
-						</dl>
-						<div class="admin-row-actions">
-							{#if nextStatus}
-								<button
-									class="btn btn--enamel btn--small"
-									type="button"
-									disabled={rowBusy}
-									aria-busy={rowBusy}
-									aria-label={actionAriaLabel('advance', order)}
-									onclick={() => void runRowAction(order, 'advance')}
-								>
-									{nextLabel(order.status)}
-								</button>
-							{/if}
-							{#if order.status !== 'Cancelled' && order.payment_status !== 'paid'}
-								<button
-									class="btn btn--ghost btn--small"
-									type="button"
-									disabled={rowBusy}
-									aria-label={actionAriaLabel('pay', order)}
-									onclick={() => void runRowAction(order, 'pay')}
-								>
-									Markahang bayad
-								</button>
-							{/if}
-							{#if order.status && canCancelOrder(order.status)}
-								<button
-									class="btn btn--quiet btn--small"
-									type="button"
-									disabled={rowBusy}
-									aria-label={actionAriaLabel('cancel', order)}
-									onclick={() => void runRowAction(order, 'cancel')}
-								>
-									Kanselahin
-								</button>
-							{/if}
-							<button
-								class="btn btn--quiet btn--small admin-delete-action"
-								type="button"
-								disabled={rowBusy}
-								aria-label={actionAriaLabel('delete', order)}
-								onclick={() => void runRowAction(order, 'delete')}
-							>
-								Burahin
-							</button>
-						</div>
-						{#if rowErrors[order.order_id]}
-							<div class="admin-row-error">
-								<InlineAlert tone="error" title={`Order #${order.order_id}`}>
-									{rowErrors[order.order_id]}
-								</InlineAlert>
-							</div>
-						{/if}
-					</article>
-				{/each}
-			</section>
-		{/if}
-	</section>
-
-	<section class="admin-qr-panel paper-panel" aria-labelledby="ordering-qr-title">
-		<div class="section-heading">
-			<PaintedSign id="ordering-qr-title" text="ORDERING QR" delay="0.1s" />
-			<span class="section-sidenote">general menu access</span>
-		</div>
-		<p class="admin-qr-panel__intro">
-			Ito ang general ordering/menu QR ng restaurant. Hindi ito table-specific at walang table
-			identity ang backend order contract.
-		</p>
-		<div class="admin-qr-panel__body">
+		<aside class="admin-qr-panel paper-panel" aria-labelledby="ordering-qr-title">
+			<h2 class="sign-type admin-qr-panel__title" id="ordering-qr-title">QR NG MESA</h2>
 			<div class="admin-qr-panel__preview">
 				{#if orderingQrUrl}
 					<img
@@ -734,27 +657,27 @@
 					<p class="admin-qr-panel__empty">Walang QR na ipinapakita ngayon.</p>
 				{/if}
 			</div>
+			<p class="admin-qr-panel__route">General ordering QR · walang table identity o expiry.</p>
+			<p class="admin-qr-panel__note">i-print, idikit sa mesa — 'yan na ang “waiter” ninyo</p>
+			{#if orderingQrError}
+				<InlineAlert tone="error" title="Hindi ma-load ang QR">{orderingQrError}</InlineAlert>
+			{/if}
 			<div class="admin-qr-panel__actions">
-				{#if orderingQrError}
-					<InlineAlert tone="error" title="Hindi ma-load ang QR">{orderingQrError}</InlineAlert>
+				<Button
+					variant="enamel"
+					disabled={orderingQrBusy}
+					busy={orderingQrBusy}
+					onclick={refreshOrderingQr}
+				>
+					{orderingQrBusy ? 'Kinukuha...' : 'Kumuha ng bagong QR'}
+				</Button>
+				{#if orderingQrUrl && orderingQrBlob}
+					<Button variant="ghost" onclick={downloadOrderingQr}>I-download ang SVG</Button>
 				{/if}
-				<div class="admin-row-actions">
-					<Button
-						variant="ghost"
-						size="small"
-						disabled={orderingQrBusy}
-						busy={orderingQrBusy}
-						onclick={refreshOrderingQr}
-					>
-						{orderingQrBusy ? 'Kinukuha...' : 'I-refresh ang QR'}
-					</Button>
-					{#if orderingQrUrl && orderingQrBlob}
-						<Button variant="quiet" size="small" onclick={downloadOrderingQr}>
-							I-download ang SVG
-						</Button>
-					{/if}
-				</div>
 			</div>
-		</div>
-	</section>
+			<p class="admin-qr-panel__footnote">
+				Isang QR para sa buong kainan. Ang pagkuha nito ay para sa admin lang.
+			</p>
+		</aside>
+	</div>
 </section>
