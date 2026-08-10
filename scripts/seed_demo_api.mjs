@@ -30,11 +30,11 @@ import { fileURLToPath } from 'node:url';
 /** @typedef {{ name: string, description: string }} SeedCategory */
 /** @typedef {{ name: string, description: string, price: string, categories: string[], fixture: string }} SeedProduct */
 /** @typedef {{ category: string, product: string }} SeedAssociation */
-/** @typedef {{ name: string, description?: string | null, permissions: string[] }} ApiRole */
+/** @typedef {{ role_id?: number, name: string, description?: string | null, permissions: string[] }} ApiRole */
 /** @typedef {{ name: string, description?: string | null }} ApiCategory */
 /** @typedef {{ product_id?: number, name: string, description?: string | null, price: string, product_image_uri?: string | null, categories?: ApiCategory[] | null }} ApiProduct */
 /** @typedef {{ roles: ApiRole[], categories: ApiCategory[], products: ApiProduct[] }} Snapshot */
-/** @typedef {{ createRole: boolean, setRolePermission: boolean, categories: SeedCategory[], products: SeedProduct[], associations: SeedAssociation[], images: SeedProduct[] }} SeedPlan */
+/** @typedef {{ createRole: boolean, setRolePermission: boolean, customerRoleId: number | null, categories: SeedCategory[], products: SeedProduct[], associations: SeedAssociation[], images: SeedProduct[] }} SeedPlan */
 /** @typedef {{ method?: string, json?: unknown, body?: BodyInit, expected?: number[], auth?: boolean }} RequestOptions */
 /** @typedef {{ request: (path: string, options?: RequestOptions) => Promise<any> }} ApiClient */
 
@@ -272,6 +272,17 @@ function assertSame(label, actual, expected) {
 	}
 }
 
+/**
+ * @param {unknown} roleId
+ * @returns {string}
+ */
+function rolePermissionPath(roleId) {
+	if (typeof roleId !== 'number' || !Number.isInteger(roleId) || roleId <= 0) {
+		throw new Error('CUSTOMER role does not have a valid numeric role_id');
+	}
+	return `/roles/${roleId}/set_permission`;
+}
+
 /** @param {ApiProduct} product */
 function categoryNames(product) {
 	if (product.categories == null) return [];
@@ -297,6 +308,7 @@ function buildPlan(snapshot) {
 	const plan = {
 		createRole: false,
 		setRolePermission: false,
+		customerRoleId: null,
 		categories: [],
 		products: [],
 		associations: [],
@@ -311,11 +323,21 @@ function buildPlan(snapshot) {
 		assertSame('CUSTOMER role description', role.description ?? null, CUSTOMER_ROLE.description);
 		if (!Array.isArray(role.permissions)) throw new Error('CUSTOMER role permissions are invalid');
 		const permissions = [...role.permissions].sort();
-		assertSame(
-			'CUSTOMER role permissions',
-			permissions.join(','),
-			CUSTOMER_ROLE.permissions.join(',')
-		);
+		// Role creation omits the SET column, so MySQL temporarily supplies its
+		// schema default READ until this second, resumable API step sets WRITE.
+		const isUnconfigured =
+			permissions.length === 0 || (permissions.length === 1 && permissions[0] === 'READ');
+		if (isUnconfigured) {
+			rolePermissionPath(role.role_id);
+			plan.setRolePermission = true;
+			plan.customerRoleId = Number(role.role_id);
+		} else {
+			assertSame(
+				'CUSTOMER role permissions',
+				permissions.join(','),
+				CUSTOMER_ROLE.permissions.join(',')
+			);
+		}
 	}
 
 	for (const expected of CATEGORIES) {
@@ -504,13 +526,18 @@ async function applyPlan(client, initialPlan) {
 		info('created CUSTOMER role');
 	}
 	if (initialPlan.setRolePermission) {
-		await client.request(`/roles/set_permission/${encodeURIComponent(CUSTOMER_ROLE.name)}`, {
-			method: 'POST',
-			auth: true,
-			json: { permission: 'WRITE' },
-			expected: [200]
-		});
-		info('set CUSTOMER permission to WRITE');
+		const roleSnapshot = await readSnapshot(client);
+		const rolePlan = buildPlan(roleSnapshot);
+		if (rolePlan.createRole) throw new Error('API did not persist the newly created CUSTOMER role');
+		if (rolePlan.setRolePermission) {
+			await client.request(rolePermissionPath(rolePlan.customerRoleId), {
+				method: 'POST',
+				auth: true,
+				json: { permission: 'WRITE' },
+				expected: [200]
+			});
+			info('set CUSTOMER permission to WRITE');
+		}
 	}
 	for (const category of initialPlan.categories) {
 		await client.request('/categories', {
@@ -717,6 +744,7 @@ export {
 	normalizeDecimal,
 	parseArgs,
 	parseSelectedEnv,
+	rolePermissionPath,
 	validateBaseUrl,
 	validateSasImageUrls
 };

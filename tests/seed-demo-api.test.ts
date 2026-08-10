@@ -4,6 +4,7 @@ import {
 	normalizeDecimal,
 	parseArgs,
 	parseSelectedEnv,
+	rolePermissionPath,
 	validateBaseUrl,
 	validateSasImageUrls
 } from '../scripts/seed_demo_api.mjs';
@@ -88,6 +89,27 @@ export ADMIN_PASSWORD='safe=value'
 				products: []
 			})
 		).toThrow('CUSTOMER role description conflicts');
+	});
+
+	it('repairs the default CUSTOMER permission through the numeric role endpoint', () => {
+		const plan = buildPlan({
+			roles: [
+				{
+					role_id: 42,
+					name: 'CUSTOMER',
+					description: 'Regular customer: can browse the menu and place orders',
+					permissions: ['READ']
+				}
+			],
+			categories: [],
+			products: []
+		});
+
+		expect(plan.createRole).toBe(false);
+		expect(plan.setRolePermission).toBe(true);
+		expect(plan.customerRoleId).toBe(42);
+		expect(rolePermissionPath(plan.customerRoleId)).toBe('/roles/42/set_permission');
+		expect(() => rolePermissionPath('CUSTOMER')).toThrow('valid numeric role_id');
 	});
 
 	it('accepts distinct HTTPS Azure product object locations', () => {
