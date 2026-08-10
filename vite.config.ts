@@ -1,9 +1,10 @@
 /// <reference types="vitest/config" />
 import { sveltekit } from '@sveltejs/kit/vite';
+import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [sveltekit(), svelteTesting()],
 	server: {
 		// One locked origin for the whole local stack: the backend CORS
 		// configuration and .env files reference exactly this address.

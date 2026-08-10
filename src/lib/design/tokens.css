@@ -1,0 +1,51 @@
+:root {
+	/* Brushed steel, paper, and painted sign palette. */
+	--steel-bg: #e8ebe7;
+	--steel-edge: #b9c1bc;
+	--steel-deep: #98a29c;
+	--steel-hi: #f4f6f3;
+	--paper: #fbfbf6;
+	--paper-dim: #f1f1e9;
+
+	--ink: #191b21;
+	--ink-soft: #3c4048;
+	--ink-faint: #5f646d;
+	--ink-a8: rgba(25, 27, 33, 0.08);
+	--ink-a18: rgba(25, 27, 33, 0.18);
+
+	--enamel: #c0202e;
+	--enamel-hover: #d02434;
+	--enamel-deep: #8f1620;
+	--pen: #2440a8;
+	--tape: #e7d8a6;
+	--tape-edge: #d9c48a;
+	--paint-green: #1a7246;
+	--paint-amber: #9a5e00;
+
+	--rule-blue: #c6d1ea;
+	--rule-red: #e2a1a6;
+
+	--font-sign: 'Bungee', 'Arial Black', sans-serif;
+	--font-board: 'Archivo', system-ui, sans-serif;
+	--font-hand: 'Kalam', 'Comic Sans MS', cursive;
+	--font-till: 'IBM Plex Mono', ui-monospace, monospace;
+
+	--radius-tray: 3px;
+	--radius-chip: 2px;
+	--hit: 44px;
+	--page-public-max: 740px;
+	--page-admin-max: 1080px;
+	--page-max: var(--page-public-max);
+	--page-pad: clamp(16px, 4vw, 28px);
+
+	--shadow-panel: 0 4px 14px var(--ink-a8);
+	--shadow-tray: 0 3px 8px rgba(25, 27, 33, 0.12);
+	--shadow-deep: 0 10px 28px rgba(25, 27, 33, 0.14);
+
+	color-scheme: light;
+}
+
+.theme-kusina {
+	--page-max: var(--page-admin-max);
+	--band-bg: var(--ink);
+}
