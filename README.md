@@ -7,7 +7,7 @@ SvelteKit frontend for the Mini QR Ordering System. It serves the Design2-inspir
 - [Bun](https://bun.sh/) 1.3 or newer
 - The sibling `arrow_server` checkout at `..\arrow_server` for live API work
 - For live data: MySQL 8.x, Rust stable, and Diesel CLI with the MySQL feature
-- Optional: Docker for the production image; Azure CLI and an Azure Container Registry for deployment
+- Optional: Azure Blob Storage for admin product-image management; Docker, Azure CLI, and an Azure Container Registry for deployment
 
 The unit/component suite uses Vitest and happy-dom, so it does not require MySQL, Azure Blob Storage, or a browser.
 
@@ -71,11 +71,23 @@ cargo install diesel_cli --no-default-features --features mysql
 
 ### Reproducible demo seed
 
-From this frontend repository, `bun run demo:seed` reads `DATABASE_URL` from the process environment or the sibling backend `.env`, runs sibling migrations, and applies the known seed only to an unseeded database. A complete seed is a clean no-op; a partial or conflicting seed fails instead of being silently overwritten. It never drops, truncates, or embeds credentials. The sibling backend still creates the admin from environment variables when it starts.
+With the backend running and object storage connected, seed through the API from this frontend repository. Always inspect the dry-run first:
+
+```powershell
+bun scripts/seed_demo_api.mjs
+bun scripts/seed_demo_api.mjs --apply
+bun scripts/seed_demo_api.mjs --verify-only
+```
+
+The default command is read-only. `--apply` creates or validates the `CUSTOMER` role, three categories, seven products and their associations, then uploads only missing demo images. The helper is resumable and idempotent: a complete seed is a no-op, repairable missing associations/images are added, and conflicting names, descriptions, prices, permissions, or unexpected associations stop the run instead of overwriting data. `--verify-only` checks the completed public API state and fetches each distinct Azure Blob SAS image without printing its URL or query.
+
+The helper uses `http://127.0.0.1:3000/api/v1` by default. Use `--base-url <api-root>` or `SEED_API_BASE_URL` for another API. Admin credentials come from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in the process or those two keys in the sibling backend `.env`; the script does not print credentials or bearer tokens. Do not place credentials or SAS URLs in commands, logs, or committed files.
+
+`bun run demo:seed` remains the direct-database bootstrap for a fresh database: it reads `DATABASE_URL`, runs sibling migrations, and applies `seed.sql` only when the database is unseeded. It does not upload object-storage images and intentionally refuses a partial database. The backend still creates the admin account from its environment when it starts.
 
 ### Admin login
 
-Set `ADMIN_USERNAME` (default `admin`) and a private `ADMIN_PASSWORD` in the backend `.env`. Start `arrow_server`, open the frontend `/login`, and use those environment-seeded values. No credential is stored in this repository or shown here.
+Set `ADMIN_USERNAME` (default `admin`) and a private `ADMIN_PASSWORD` in the backend `.env`. Start `arrow_server`, open the frontend `/login`, and use those environment-seeded values. `/login` is a Kusina/admin-only entry point: there is no customer login, registration, or customer/admin mode switch. Public ordering remains available without an account. No credential is stored in this repository or shown here.
 
 ### Two-terminal local workflow
 
@@ -106,16 +118,18 @@ Use `127.0.0.1` consistently. `localhost` and `127.0.0.1` are different browser 
 
 ## Routes and API Behavior
 
-| Frontend route                | Behavior                                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `/`                           | Public categories/products menu and persisted cart bar.                                                                |
-| `/cart`                       | Reconciles cart snapshots against fresh products; quantity, remove, clear, and checkout actions.                       |
-| `/checkout`                   | Sends guest `{ products: [{ product_id, quantity }] }`; the server owns prices and totals.                             |
-| `/order/{id}?exp=...&sig=...` | Reads and polls the opaque signed receipt link, generates a receipt QR, copies the full link, and offers mock payment. |
-| `/login`                      | Logs in, hydrates the server user, and redirects only after `ADMIN` permission is confirmed.                           |
-| `/admin`                      | Authenticated order filters, KPIs, pessimistic status/payment/cancel/delete actions, and ordering QR display/download. |
+| Frontend route                | Behavior                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                           | Public categories/products menu and persisted cart bar.                                                                         |
+| `/cart`                       | Reconciles cart snapshots against fresh products; quantity, remove, clear, and checkout actions.                                |
+| `/checkout`                   | Sends guest `{ products: [{ product_id, quantity }] }`; the server owns prices and totals.                                      |
+| `/order/{id}?exp=...&sig=...` | Reads and polls the opaque signed receipt link, generates a receipt QR, copies the full link, and offers mock payment.          |
+| `/login`                      | Kusina-only login; hydrates the server user and redirects only after `ADMIN` permission is confirmed.                           |
+| `/admin`                      | Protected order KPIs/ledger/actions and ordering QR, plus product creation and product-image upload, replacement, and deletion. |
 
-Public calls use `GET /products`, `GET /products/{id}`, `GET /categories`, category products, and guest `POST /orders` without `Authorization`. Signed receipt GET/pay also deliberately omit `Authorization`, even if an admin token is stored. Protected user, admin order, and QR calls require a Bearer token. Routes and stores do not call `fetch` directly.
+Public calls use `GET /products`, `GET /products/{id}`, `GET /categories`, category products, and guest `POST /orders` without `Authorization`. Signed receipt GET/pay also deliberately omit `Authorization`, even if an admin token is stored. Protected user, admin order, QR, product-create, and product-image mutation calls require a Bearer token. Routes and stores do not call `fetch` directly.
+
+The admin menu saves product JSON first and uploads an optional image as a second request. If the image step fails, the product remains created and the row exposes a retry path; the UI reports this as partial success instead of resubmitting or hiding the saved product. Product editing/deletion and category CRUD are outside this interface.
 
 The frontend preserves exact backend order statuses: `Pending`, `Accepted`, `Ready`, `Completed`, and `Cancelled`. The displayed copy is `Tinanggap`, `Niluluto`, `Handa na`, `Nakuha na`, and `Kinansela`; `Preparing` is never sent. Product SAS image URLs are rendered in memory only and are not persisted.
 
@@ -140,6 +154,8 @@ Check that the browser origin is exactly `http://127.0.0.1:5173`, the frontend u
 ### Missing or expired Azure Blob image URLs
 
 Product images are optional and SAS URLs are short-lived. Configure the backend Azure storage account/container and SAS-signing settings when image uploads/read SAS URLs are required. A missing or expired image is refetched once and then rendered as the accessible no-image slot; image URLs are never placed in cart localStorage.
+
+Without configured object storage, product creation still succeeds but image upload/replacement/deletion returns 503. The admin board keeps the created product visible, explains the partial success, and permits a later row-level image retry after storage is restored.
 
 ### Expired or invalid receipt links
 

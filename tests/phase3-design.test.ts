@@ -36,6 +36,26 @@ describe('Phase 3 visual contract', () => {
 		expect(globalStyles).toContain('@media (prefers-reduced-motion: reduce)');
 	});
 
+	it('keeps the Design2 admin and Kusina login sizing contracts', () => {
+		const globalStyles = readFileSync(resolve(projectRoot, 'src/lib/design/global.css'), 'utf8');
+
+		expect(globalStyles).toMatch(
+			/\.login-actions--pair \.btn\s*{[^}]*width:\s*100%;[^}]*min-height:\s*52px;[^}]*padding:\s*12px 18px;/s
+		);
+		expect(globalStyles).toMatch(
+			/@media \(max-width: 390px\)[\s\S]*?\.login-actions--pair \.btn,[\s\S]*?\.login-actions--recovery \.btn\s*{[^}]*width:\s*100%;/s
+		);
+		expect(globalStyles).toMatch(/\.admin-status-tab\s*{[^}]*min-height:\s*var\(--hit\);/s);
+		expect(globalStyles).toMatch(
+			/\.admin-icon-button\s*{[^}]*width:\s*var\(--hit\);[^}]*height:\s*var\(--hit\);/s
+		);
+		expect(globalStyles).toMatch(/\.admin-ledger-wrap\s*{[^}]*overflow-x:\s*auto;/s);
+		expect(globalStyles).toMatch(/\.admin-menu-ledger-wrap\s*{[^}]*overflow-x:\s*auto;/s);
+		expect(globalStyles).toMatch(
+			/\.admin-menu-field input:not\(\[type='file'\]\),[\s\S]*?min-height:\s*var\(--hit\);/s
+		);
+	});
+
 	it('renders distinct shells and keeps the sticky cart tied to menu intent', () => {
 		const publicMenu = render(PublicShell, { showCartBar: true });
 		expect(publicMenu.container.querySelector('.public-shell')).not.toBeNull();

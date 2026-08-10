@@ -426,7 +426,7 @@
 	<title>Kanto Kusina - Order Board</title>
 </svelte:head>
 
-<section class="admin-board" aria-labelledby="admin-title">
+<div class="admin-board">
 	<section
 		class="kpi-grid"
 		aria-label="Buod ngayong araw"
@@ -683,4 +683,4 @@
 	</div>
 
 	<AdminMenuBoard active={currentAuthStatus === 'authenticated'} />
-</section>
+</div>

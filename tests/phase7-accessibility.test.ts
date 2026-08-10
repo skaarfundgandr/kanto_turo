@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/svelte';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Order, Product, User } from '../src/lib/api/types';
@@ -12,7 +12,9 @@ import ReceiptPage from '../src/routes/order/[id]/+page.svelte';
 
 const endpointMocks = vi.hoisted(() => ({
 	cancelOrder: vi.fn(),
+	createProduct: vi.fn(),
 	createGuestOrder: vi.fn(),
+	deleteProductImage: vi.fn(),
 	deleteOrder: vi.fn(),
 	getOrderingQr: vi.fn(),
 	getProduct: vi.fn(),
@@ -24,6 +26,7 @@ const endpointMocks = vi.hoisted(() => ({
 	login: vi.fn(),
 	payOrder: vi.fn(),
 	updateOrderStatus: vi.fn(),
+	uploadProductImage: vi.fn(),
 	paySignedOrder: vi.fn()
 }));
 
@@ -231,32 +234,82 @@ describe('Phase 7 route accessibility', () => {
 		await expectAccessible(view.container);
 	});
 
-	it('audits the login route and preserves explicit form field names', async () => {
+	it('audits the admin-only login, its single heading, and equal Kusina actions', async () => {
 		const view = render(LoginPage);
 
-		expect(await view.findByRole('button', { name: 'Pumasok sa kusina' })).not.toBeNull();
+		const submit = await view.findByRole('button', { name: 'Pumasok sa kusina' });
+		const menuLink = view.getByRole('link', { name: 'Bumalik sa menu' });
+		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+		expect(view.container.querySelector('[data-login-mode="kusina"]')).not.toBeNull();
 		expect(view.getByLabelText('Username')).not.toBeNull();
 		expect(view.getByLabelText('Password')).not.toBeNull();
+		expect(submit.closest('.login-actions--pair')).toBe(menuLink.closest('.login-actions--pair'));
+		expect(submit.classList.contains('btn')).toBe(true);
+		expect(menuLink.classList.contains('btn')).toBe(true);
+		expect(view.queryByText(/customer|mag-register|gumawa ng account/i)).toBeNull();
 		await expectAccessible(view.container);
 	});
 
-	it('audits the authenticated admin route with table headers and named actions', async () => {
+	it('audits the authenticated admin ledgers, live controls, and named actions', async () => {
 		authMocks.setState({ status: 'authenticated', user: adminUser });
 		const view = render(AdminPage);
 
 		await waitFor(() =>
 			expect(view.container.querySelector('tbody tr[data-order-id="42"]')).not.toBeNull()
 		);
-		expect(view.getByRole('table')).not.toBeNull();
-		expect(view.container.querySelector('th[scope="col"]')).not.toBeNull();
-		const desktopLedger = view.getByRole('table');
+		await waitFor(() =>
+			expect(view.container.querySelector('tr[data-admin-product-id="1"]')).not.toBeNull()
+		);
+		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+		const [desktopLedger, menuLedger] = view.getAllByRole('table');
+		expect(
+			within(desktopLedger)
+				.getAllByRole('columnheader')
+				.map((cell) => cell.textContent?.trim())
+		).toEqual(['Oras', '#', 'Laman', 'Kabuuan', 'Kusina', 'Bayad', 'Aksyon']);
+		expect(
+			within(menuLedger)
+				.getAllByRole('columnheader')
+				.map((cell) => cell.textContent?.trim())
+		).toEqual(['Larawan', 'Ulam', 'Presyo', 'Kategorya', 'Aksyon']);
+		const statusTabs = view.getByRole('navigation', {
+			name: 'Salain ayon sa status ng kusina'
+		});
+		expect(
+			within(statusTabs).getByRole('button', { name: 'Lahat' }).getAttribute('aria-pressed')
+		).toBe('true');
+		expect(
+			within(statusTabs)
+				.getAllByRole('button')
+				.filter((button) => button.getAttribute('aria-pressed') === 'true')
+		).toHaveLength(1);
+		expect(
+			view
+				.getByRole('region', { name: 'Scrollable na ledger ng mga order' })
+				.getAttribute('tabindex')
+		).toBe('0');
+		expect(
+			view
+				.getByRole('region', { name: 'Scrollable na listahan ng mga ulam' })
+				.getAttribute('tabindex')
+		).toBe('0');
 		expect(
 			within(desktopLedger).getByRole('button', { name: /Isulong ang order #42/ })
 		).not.toBeNull();
 		expect(
 			within(desktopLedger).getByRole('button', { name: /Markahang bayad ang order #42/ })
 		).not.toBeNull();
+		expect(view.getByLabelText(/Larawan.*opsyonal, puwede ring mamaya/i)).not.toBeNull();
+		expect(view.getByLabelText('Ikabit ang larawan ng Chicken adobo')).not.toBeNull();
+		expect(
+			view.getByRole('button', { name: 'Alisin ang larawan ng Chicken adobo' })
+		).not.toBeNull();
 		expect(view.getByRole('img', { name: 'QR code para sa general ordering menu' })).not.toBeNull();
+
+		const productForm = view.container.querySelector('.admin-menu-form');
+		expect(productForm).not.toBeNull();
+		await fireEvent.submit(productForm as HTMLFormElement);
+		expect(view.getByRole('alert').textContent).toContain('Ilagay ang pangalan ng ulam.');
 		await expectAccessible(view.container);
 	});
 });
