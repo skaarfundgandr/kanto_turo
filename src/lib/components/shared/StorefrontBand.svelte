@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
+	import { base, resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Wordmark from './Wordmark.svelte';
 
@@ -19,11 +19,21 @@
 		return subtitle || (variant === 'kusina' ? 'Kusina · Admin Board' : 'Turo-Turo · Karinderya');
 	}
 
+	function normalizePathname(pathname: string): string {
+		const normalizedBase = base.replace(/\/+$/, '');
+		if (!normalizedBase || normalizedBase === '/') return pathname || '/';
+		if (pathname === normalizedBase || pathname.startsWith(`${normalizedBase}/`)) {
+			return pathname.slice(normalizedBase.length) || '/';
+		}
+		return pathname || '/';
+	}
+
 	function isCurrent(path: string): boolean {
-		const currentPath = page.url.pathname as string;
-		return path === '/'
+		const currentPath = normalizePathname(page.url.pathname as string);
+		const targetPath = normalizePathname(path);
+		return targetPath === '/'
 			? currentPath === '/'
-			: currentPath === path || currentPath.startsWith(`${path}/`);
+			: currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
 	}
 </script>
 

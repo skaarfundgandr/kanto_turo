@@ -477,6 +477,99 @@ a {
 	transform: rotate(-2deg);
 }
 
+.menu-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+	margin: 16px 0 0;
+	list-style: none;
+}
+
+.menu-grid > li {
+	min-width: 0;
+}
+
+.product-plate {
+	display: grid;
+	gap: 12px;
+}
+
+.product-plate__photo {
+	margin-bottom: 2px;
+}
+
+.product-plate__photo img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	border-radius: var(--radius-chip);
+}
+
+.product-plate__photo--refreshing {
+	opacity: 0.7;
+}
+
+.product-plate__body {
+	display: grid;
+	gap: 8px;
+}
+
+.product-plate__heading {
+	display: flex;
+	align-items: start;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.product-plate__name {
+	min-width: 0;
+	font-family: var(--font-sign);
+	font-size: 1rem;
+	font-weight: 400;
+	line-height: 1.15;
+	overflow-wrap: anywhere;
+}
+
+.product-plate__selected {
+	flex: 0 0 auto;
+	color: var(--paint-green);
+	font-family: var(--font-till);
+	font-size: 0.68rem;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.product-plate__description {
+	color: var(--ink-soft);
+	font-size: 0.8rem;
+}
+
+.product-plate__footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.product-plate__action {
+	min-width: 78px;
+}
+
+.menu-feedback {
+	min-height: 1.5em;
+	margin-top: 12px;
+	color: var(--paint-green);
+	font-family: var(--font-hand);
+	font-size: 1rem;
+}
+
+.menu-state__action,
+.cart-state__action {
+	display: flex;
+	justify-content: center;
+	margin-top: 16px;
+}
+
 /* Ballpen ink is decorative and never becomes an extra focus target. */
 .turo-ink {
 	position: absolute;
@@ -1144,6 +1237,12 @@ a {
 	font-size: 0.78rem;
 }
 
+.cart-bar__total {
+	color: var(--ink-faint);
+	font-family: var(--font-till);
+	font-size: 0.7rem;
+}
+
 .cart-bar__inner::before {
 	position: absolute;
 	inset: 0;
@@ -1161,6 +1260,124 @@ a {
 
 .motion-ok .cart-bar__inner.is-bumping {
 	animation: cart-bump 0.35s ease-out;
+}
+
+/* Ruled order slip lines and actions. */
+.cart-stage {
+	display: grid;
+	gap: 16px;
+}
+
+.cart-stage > .inline-alert {
+	margin-top: 2px;
+}
+
+.cart-slip-panel {
+	padding-top: 26px;
+	padding-bottom: 24px;
+}
+
+.cart-lines {
+	display: grid;
+	gap: 1px;
+	list-style: none;
+}
+
+.cart-line {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px 16px;
+	align-items: center;
+	min-width: 0;
+	padding: 13px 0 14px;
+	border-bottom: 1px dashed var(--ink-faint);
+}
+
+.cart-line__copy {
+	display: grid;
+	gap: 3px;
+	min-width: 0;
+}
+
+.cart-line__name {
+	font-family: var(--font-sign);
+	font-size: 0.92rem;
+	font-weight: 400;
+	line-height: 1.2;
+	overflow-wrap: anywhere;
+}
+
+.cart-line__unit {
+	color: var(--ink-faint);
+	font-family: var(--font-till);
+	font-size: 0.7rem;
+}
+
+.cart-line__controls {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 12px;
+}
+
+.cart-line__total {
+	min-width: 5.5ch;
+	font-family: var(--font-till);
+	font-size: 0.85rem;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.cart-line__remove {
+	grid-column: 1 / -1;
+	justify-self: start;
+	min-height: var(--hit);
+	padding: 6px 0;
+	border: 0;
+	background: transparent;
+	color: var(--enamel-deep);
+	font-size: 0.78rem;
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.cart-total {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 18px;
+	padding: 13px 0 4px;
+	border-top: 3px double var(--ink);
+	font-family: var(--font-till);
+	font-size: 0.82rem;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.cart-total strong {
+	font-size: 1.05rem;
+	white-space: nowrap;
+}
+
+.cart-actions {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 20px;
+	flex-wrap: wrap;
+}
+
+.cart-clear {
+	min-height: var(--hit);
+	margin-top: 10px;
+	padding: 4px 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-faint);
+	font-size: 0.75rem;
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 @keyframes cart-bump {
@@ -1197,6 +1414,10 @@ a {
 }
 
 @media (max-width: 560px) {
+	.menu-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
 	.kpi-grid {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
@@ -1211,6 +1432,14 @@ a {
 
 	.cart-bar .btn {
 		flex: 0 0 auto;
+	}
+
+	.cart-line {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.cart-line__controls {
+		justify-content: space-between;
 	}
 }
 

@@ -255,4 +255,14 @@ describe('API client errors and endpoint policy', () => {
 		expect(signedUrl.searchParams.get('exp')).toBe('1700000000');
 		expect(signedUrl.searchParams.get('sig')).toBe('sig-raw-value');
 	});
+
+	it('URL-encodes category names at the endpoint boundary', async () => {
+		fetchMock.mockResolvedValueOnce(jsonResponse([]));
+
+		await listCategoryProducts('Ulam & Rice');
+
+		expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+			'/categories/Ulam%20%26%20Rice/products'
+		);
+	});
 });
