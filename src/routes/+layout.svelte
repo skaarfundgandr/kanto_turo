@@ -29,6 +29,10 @@
 		return normalizedPathname === '/admin' || normalizedPathname.startsWith('/admin/');
 	}
 
+	function isLogin(pathname: string): boolean {
+		return normalizePathname(pathname) === '/login';
+	}
+
 	function isMenu(pathname: string): boolean {
 		return normalizePathname(pathname) === '/';
 	}
@@ -49,8 +53,8 @@
 	<title>Kanto Turo-Turo</title>
 </svelte:head>
 
-{#if isKusina(page.url.pathname as string)}
-	<KusinaShell>
+{#if isKusina(page.url.pathname as string) || isLogin(page.url.pathname as string)}
+	<KusinaShell login={isLogin(page.url.pathname as string)}>
 		<slot />
 	</KusinaShell>
 {:else}

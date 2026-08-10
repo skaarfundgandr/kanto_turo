@@ -158,14 +158,19 @@
 	<title>Kanto Turo-Turo - Kusina Login</title>
 </svelte:head>
 
-<section class="login-stage" aria-labelledby="login-title" aria-busy={viewState === 'loading'}>
+<section
+	class="login-stage"
+	aria-labelledby="login-title"
+	aria-busy={viewState === 'loading'}
+	data-login-mode="kusina"
+>
 	<div class="section-heading">
-		<PaintedSign id="login-title" text="KUSINA LOGIN" delay="0.05s" />
-		<span class="section-sidenote">para sa counter</span>
+		<PaintedSign id="login-title" text="SINO KA DIYAN?" level="h1" delay="0.05s" />
+		<span class="section-sidenote">para sa counter lang</span>
 	</div>
 
 	{#if viewState === 'loading'}
-		<PaperPanel ariaLabel="Login session loading">
+		<PaperPanel className="login-panel login-panel--state" ariaLabel="Login session loading">
 			<Skeleton lines={4} label="Sinusuri ang login session" />
 			<p class="login-intro">
 				Awtomatikong sinusubukan muli ang session. Maaari kang mag-login ngayon kung hindi ito
@@ -174,7 +179,7 @@
 			{#if errorMessage}
 				<InlineAlert tone="error" title={errorTitle}>{errorMessage}</InlineAlert>
 			{/if}
-			<div class="login-actions">
+			<div class="login-actions login-actions--recovery">
 				<Button variant="ghost" href={resolve('/')}>Bumalik sa menu</Button>
 				<Button
 					variant="ghost"
@@ -188,20 +193,20 @@
 			</div>
 		</PaperPanel>
 	{:else if viewState === 'forbidden'}
-		<PaperPanel ariaLabel="Admin login access denied">
+		<PaperPanel className="login-panel login-panel--state" ariaLabel="Admin login access denied">
 			<InlineAlert tone="error" title={errorTitle || '403 · Walang access sa kusina'}>
 				{errorMessage || 'Valid ang session, pero hindi ito admin account.'}
 			</InlineAlert>
-			<div class="login-actions">
+			<div class="login-actions login-actions--recovery">
 				<Button variant="ghost" href={resolve('/')}>Bumalik sa menu</Button>
 				<Button onclick={clearForbiddenSession}>Mag-login sa ibang account</Button>
 			</div>
 		</PaperPanel>
 	{:else}
-		<PaperPanel className="login-panel" ariaLabel="Kusina login form">
+		<PaperPanel className="login-panel login-panel--form" ariaLabel="Kusina login form">
 			<p class="login-intro">
-				Ilagay ang admin account para makita ang live na order board. Ang access ay sinusuri mula sa
-				server bago ka papasukin.
+				Para sa counter ito. Ilagay ang admin account para makita ang live na order board — sinusuri
+				ng server ang ADMIN permission bago ka papasukin.
 			</p>
 
 			{#if errorMessage}
@@ -209,19 +214,22 @@
 			{/if}
 
 			<form class="login-form" onsubmit={submitLogin}>
-				<label class="login-field">
+				<label class="login-field" for="kusina-username">
 					<span>Username</span>
 					<input
+						id="kusina-username"
 						name="username"
+						type="text"
 						autocomplete="username"
 						bind:value={username}
 						required
 						disabled={submitting}
 					/>
 				</label>
-				<label class="login-field">
+				<label class="login-field" for="kusina-password">
 					<span>Password</span>
 					<input
+						id="kusina-password"
 						type="password"
 						name="password"
 						autocomplete="current-password"
@@ -230,13 +238,19 @@
 						disabled={submitting}
 					/>
 				</label>
-				<div class="login-actions">
-					<Button variant="ghost" href={resolve('/')}>Bumalik sa menu</Button>
+				<div class="login-actions login-actions--pair">
 					<Button type="submit" disabled={submitting} busy={submitting}>
 						{submitting ? 'Sinusuri...' : 'Pumasok sa kusina'}
 					</Button>
+					<Button variant="ghost" href={resolve('/')}>Bumalik sa menu</Button>
 				</div>
 			</form>
+
+			<p class="till login-note">
+				Iisang secure login ang gamit. Sa server kinukumpirma ang ADMIN permission bago buksan ang
+				board.
+			</p>
+			<p class="hand login-hand">hindi admin account? 403 — mananatili ka lang dito</p>
 		</PaperPanel>
 	{/if}
 </section>

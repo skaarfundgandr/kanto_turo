@@ -300,6 +300,18 @@ describe('Phase 6 admin domain and guard', () => {
 });
 
 describe('Phase 6 root auth redirect gate', () => {
+	it('uses a dark navigation-free Kusina shell for the admin-only login route', () => {
+		navigationMocks.page.url = new URL('http://localhost/base/login');
+		const view = render(RootLayout);
+
+		expect(view.container.querySelector('.kusina-shell--login')).not.toBeNull();
+		expect(view.container.querySelector('.band--kusina')).not.toBeNull();
+		expect(view.getByText('Kusina · Admin Board')).not.toBeNull();
+		expect(view.getByText('“para sa counter lang”')).not.toBeNull();
+		expect(view.queryByRole('navigation')).toBeNull();
+		view.unmount();
+	});
+
 	it('keeps the error-page recovery link within the configured base path', () => {
 		const view = render(ErrorPage);
 
@@ -328,6 +340,42 @@ describe('Phase 6 root auth redirect gate', () => {
 describe('Phase 6 login', () => {
 	beforeEach(() => {
 		authMocks.setState({ status: 'anonymous', user: null });
+	});
+
+	it('renders the Kusina-only Design2 copy with one shared action-sizing group', async () => {
+		const view = render(LoginPage);
+		const submit = await view.findByRole('button', { name: 'Pumasok sa kusina' });
+		const menuLink = view.getByRole('link', { name: 'Bumalik sa menu' });
+
+		expect(view.container.querySelector('[data-login-mode="kusina"]')).not.toBeNull();
+		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+		expect(view.getByRole('heading', { level: 1, name: 'SINO KA DIYAN?' })).not.toBeNull();
+		expect(view.getByText('para sa counter lang')).not.toBeNull();
+		expect(view.getByText('Para sa counter ito.', { exact: false })).not.toBeNull();
+		expect(view.getByText('hindi admin account?', { exact: false })).not.toBeNull();
+		expect(submit.closest('.login-actions--pair')).toBe(menuLink.closest('.login-actions--pair'));
+		expect(view.queryByRole('tab')).toBeNull();
+		expect(view.queryByText(/customer|register|gumawa ng account/i)).toBeNull();
+	});
+
+	it('blocks duplicate Kusina login submissions while server hydration is pending', async () => {
+		type TestAuthState = Parameters<typeof authMocks.setState>[0];
+		let resolveLogin: ((state: TestAuthState) => void) | undefined;
+		authMocks.login.mockImplementationOnce(
+			() => new Promise<TestAuthState>((resolve) => (resolveLogin = resolve))
+		);
+		const view = render(LoginPage);
+		const submit = await view.findByRole('button', { name: 'Pumasok sa kusina' });
+		await fireEvent.input(view.getByLabelText('Username'), { target: { value: 'admin' } });
+		await fireEvent.input(view.getByLabelText('Password'), { target: { value: 'secret' } });
+
+		await fireEvent.click(submit);
+		await fireEvent.click(submit);
+
+		expect(authMocks.login).toHaveBeenCalledTimes(1);
+		expect((submit as HTMLButtonElement).disabled).toBe(true);
+		resolveLogin?.({ status: 'authenticated', user: adminUser });
+		await waitFor(() => expect(navigationMocks.goto).toHaveBeenCalledWith('/base/admin'));
 	});
 
 	it.each([
