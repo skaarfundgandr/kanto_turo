@@ -6,11 +6,14 @@
 	import '@fontsource/ibm-plex-mono/400.css';
 	import '@fontsource/ibm-plex-mono/600.css';
 	import '@fontsource/kalam/400.css';
-	import { base } from '$app/paths';
+	import { goto } from '$app/navigation';
+	import { base, resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import KusinaShell from '$lib/components/shell/KusinaShell.svelte';
 	import PublicShell from '$lib/components/shell/PublicShell.svelte';
 	import '$lib/design/global.css';
+	import { setAuthRedirectHandler } from '$lib/stores/auth';
 
 	function normalizePathname(pathname: string): string {
 		const normalizedBase = base.replace(/\/+$/, '');
@@ -29,6 +32,17 @@
 	function isMenu(pathname: string): boolean {
 		return normalizePathname(pathname) === '/';
 	}
+
+	onMount(() => {
+		const redirectToLogin = (): void => {
+			// A protected 401 must not interrupt guest menu or signed-receipt flows.
+			if (!isKusina(page.url.pathname as string)) return;
+			void goto(resolve('/login'));
+		};
+
+		setAuthRedirectHandler(redirectToLogin);
+		return () => setAuthRedirectHandler(null);
+	});
 </script>
 
 <svelte:head>
