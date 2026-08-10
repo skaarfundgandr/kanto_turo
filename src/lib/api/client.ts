@@ -11,7 +11,7 @@ export interface ApiRequestOptions {
 	/** `none` (default) never attaches Authorization, even with a stored token. */
 	auth?: AuthMode;
 	method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-	/** JSON-serializable request body. */
+	/** JSON-serializable request body or raw multipart form data. */
 	body?: unknown;
 	/** Extra query parameters; `undefined` values are skipped. */
 	query?: Record<string, string | number | undefined>;
@@ -54,8 +54,16 @@ export async function apiRequest(path: string, options: ApiRequestOptions = {}):
 	}
 
 	const headers: Record<string, string> = {};
+	let requestBody: BodyInit | undefined;
 	let requestToken: string | null = null;
-	if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+	if (options.body !== undefined) {
+		if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+			requestBody = options.body;
+		} else {
+			headers['Content-Type'] = 'application/json';
+			requestBody = JSON.stringify(options.body);
+		}
+	}
 	if (auth === 'required') {
 		const token = getStoredToken();
 		if (!token) {
@@ -72,7 +80,7 @@ export async function apiRequest(path: string, options: ApiRequestOptions = {}):
 		response = await fetch(url, {
 			method,
 			headers,
-			body: options.body === undefined ? undefined : JSON.stringify(options.body),
+			body: requestBody,
 			signal: options.signal
 		});
 	} catch (error) {

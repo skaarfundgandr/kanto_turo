@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiRequest } from '../src/lib/api/client';
 import {
 	cancelOrder,
+	createProduct,
 	createGuestOrder,
 	deleteOrder,
+	deleteProductImage,
 	getOrderingQr,
 	getProduct,
 	getSignedOrder,
@@ -16,6 +18,7 @@ import {
 	payOrder,
 	paySignedOrder,
 	refreshToken,
+	uploadProductImage,
 	updateOrderStatus
 } from '../src/lib/api/endpoints';
 import { ApiError } from '../src/lib/api/errors';
@@ -138,6 +141,29 @@ describe('API client errors and endpoint policy', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it('fails protected product mutations locally when no token exists', async () => {
+		await expect(createProduct({ name: 'Sinigang', price: '150.00' })).rejects.toMatchObject({
+			status: 401
+		});
+		await expect(uploadProductImage(12, new Blob(['image']))).rejects.toMatchObject({
+			status: 401
+		});
+		await expect(deleteProductImage(12)).rejects.toMatchObject({ status: 401 });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('passes raw FormData through without setting a multipart content type', async () => {
+		const body = new FormData();
+		body.append('file', new Blob(['image'], { type: 'image/png' }));
+		fetchMock.mockResolvedValueOnce(new Response('', { status: 200 }));
+
+		await expect(apiRequest('/multipart', { method: 'POST', body })).resolves.toBeUndefined();
+
+		const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+		expect(init.body).toBe(body);
+		expect(init.headers).not.toHaveProperty('Content-Type');
+	});
+
 	it('keeps guest and signed flows unauthenticated with a stored token', async () => {
 		setStoredToken('valid-or-stale-admin-token');
 		fetchMock.mockImplementation(async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -234,6 +260,65 @@ describe('API client errors and endpoint policy', () => {
 			(call) => pathOf(call) === '/orders' && methodOf(call) === 'GET'
 		);
 		expect(new URL(String(ordersListCall?.[0])).searchParams.get('status')).toBe('Pending');
+	});
+
+	it('sends protected product JSON and image multipart requests to the generated paths', async () => {
+		setStoredToken('admin-token');
+		fetchMock.mockImplementation(async () => new Response('', { status: 200 }));
+		const product = {
+			name: 'Sinigang na Baboy',
+			description: 'Maasim at mainit',
+			price: '185.00',
+			categories: ['Ulam']
+		};
+		const image = new Blob(['fake-png'], { type: 'image/png' });
+
+		await expect(createProduct(product)).resolves.toBeUndefined();
+		await expect(uploadProductImage(17, image)).resolves.toBeUndefined();
+		await expect(deleteProductImage(17)).resolves.toBeUndefined();
+
+		const [createCall, uploadCall, deleteCall] = fetchMock.mock.calls;
+		expect(pathOf(createCall)).toBe('/products');
+		expect(methodOf(createCall)).toBe('POST');
+		expect(authorizationOf(createCall)).toBe('Bearer admin-token');
+		expect((createCall[1] as RequestInit).headers).toHaveProperty(
+			'Content-Type',
+			'application/json'
+		);
+		expect((createCall[1] as RequestInit).body).toBe(JSON.stringify(product));
+
+		expect(pathOf(uploadCall)).toBe('/products/17/image');
+		expect(methodOf(uploadCall)).toBe('POST');
+		expect(authorizationOf(uploadCall)).toBe('Bearer admin-token');
+		expect((uploadCall[1] as RequestInit).headers).not.toHaveProperty('Content-Type');
+		const uploadBody = (uploadCall[1] as RequestInit).body;
+		expect(uploadBody).toBeInstanceOf(FormData);
+		const uploadedFile = (uploadBody as FormData).get('file');
+		expect(uploadedFile).toBeInstanceOf(Blob);
+		expect((uploadedFile as Blob).size).toBe(image.size);
+		expect((uploadedFile as Blob).type).toBe(image.type);
+
+		expect(pathOf(deleteCall)).toBe('/products/17/image');
+		expect(methodOf(deleteCall)).toBe('DELETE');
+		expect(authorizationOf(deleteCall)).toBe('Bearer admin-token');
+	});
+
+	it('propagates documented product mutation errors for UI recovery', async () => {
+		const cases = [
+			{ status: 400, invoke: () => uploadProductImage(9, new Blob(['bad-image'])) },
+			{ status: 401, invoke: () => uploadProductImage(9, new Blob(['image'])) },
+			{ status: 403, invoke: () => deleteProductImage(9) },
+			{ status: 404, invoke: () => uploadProductImage(9, new Blob(['image'])) },
+			{ status: 409, invoke: () => createProduct({ name: 'Duplicate', price: '10.00' }) },
+			{ status: 429, invoke: () => uploadProductImage(9, new Blob(['image'])) },
+			{ status: 503, invoke: () => deleteProductImage(9) }
+		];
+
+		for (const { status, invoke } of cases) {
+			setStoredToken('admin-token');
+			fetchMock.mockResolvedValueOnce(new Response('', { status }));
+			await expect(invoke()).rejects.toMatchObject({ status });
+		}
 	});
 
 	it('accepts empty successful text responses and keeps signed query values', async () => {

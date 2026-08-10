@@ -56,6 +56,18 @@ type RequestBody<OperationType> = OperationType extends {
 	? Body
 	: never;
 
+type MultipartRequestBody<OperationType> = OperationType extends {
+	requestBody?: { content: { 'multipart/form-data': infer Body } };
+}
+	? Body
+	: never;
+
+type PathParameters<OperationType> = OperationType extends {
+	parameters: { path: infer Path };
+}
+	? Path
+	: never;
+
 type QueryParameters<OperationType> = OperationType extends {
 	parameters: { query?: infer Query };
 }
@@ -82,6 +94,12 @@ type OrdersQuery = QueryParameters<Operation<'/orders', 'get'>>;
 type LoginRequestBody = RequestBody<Operation<'/auth/login', 'post'>>;
 type CreateOrderRequestBody = RequestBody<Operation<'/orders', 'post'>>;
 type UpdateOrderRequestBody = RequestBody<Operation<'/orders/{id}', 'post'>>;
+type CreateProductRequestBody = RequestBody<Operation<'/products', 'post'>>;
+type ProductImageRequestBody = MultipartRequestBody<Operation<'/products/{id}/image', 'post'>>;
+type ProductImagePath = PathParameters<Operation<'/products/{id}/image', 'post'>>;
+
+export type CreateProductInput = Pick<CreateProductRequestBody, 'name' | 'price'> &
+	Partial<Pick<CreateProductRequestBody, 'description' | 'categories'>>;
 
 type ListItem<Wire> = Wire extends readonly (infer Item)[] ? Item : never;
 /** Pairs each unknown runtime payload with its generated success-body type. */
@@ -126,6 +144,36 @@ export async function getProduct(productId: number): Promise<Product> {
 		await apiRequest(`/products/${productId}`, { auth: 'none' }),
 		normalizeProduct
 	);
+}
+
+export async function createProduct(product: CreateProductInput): Promise<void> {
+	const body: CreateProductRequestBody = product;
+	await apiRequest('/products', {
+		method: 'POST',
+		body,
+		auth: 'required'
+	});
+}
+
+export async function uploadProductImage(
+	productId: ProductImagePath['id'],
+	file: Blob
+): Promise<void> {
+	const formData = new FormData();
+	const fieldName: keyof ProductImageRequestBody = 'file';
+	formData.append(fieldName, file);
+	await apiRequest(`/products/${productId}/image`, {
+		method: 'POST',
+		body: formData,
+		auth: 'required'
+	});
+}
+
+export async function deleteProductImage(productId: ProductImagePath['id']): Promise<void> {
+	await apiRequest(`/products/${productId}/image`, {
+		method: 'DELETE',
+		auth: 'required'
+	});
 }
 
 export async function listCategories(): Promise<Category[]> {
