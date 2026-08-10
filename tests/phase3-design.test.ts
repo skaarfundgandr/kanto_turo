@@ -36,6 +36,12 @@ describe('Phase 3 visual contract', () => {
 		expect(globalStyles).toContain('@media (prefers-reduced-motion: reduce)');
 	});
 
+	it('contains product photos within their frame so card copy stays readable', () => {
+		const globalStyles = readFileSync(resolve(projectRoot, 'src/lib/design/global.css'), 'utf8');
+
+		expect(globalStyles).toMatch(/\.product-plate__photo\s*{[^}]*overflow:\s*hidden;/s);
+	});
+
 	it('keeps the Design2 admin and Kusina login sizing contracts', () => {
 		const globalStyles = readFileSync(resolve(projectRoot, 'src/lib/design/global.css'), 'utf8');
 
