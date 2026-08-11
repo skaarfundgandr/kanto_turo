@@ -38,6 +38,9 @@
 
 	type BoardState = 'loading' | 'ready' | 'error';
 	type RowAction = 'advance' | 'pay' | 'cancel' | 'delete';
+	type AdminStation = 'orders' | 'menu' | 'qr';
+
+	const ADMIN_STATIONS: readonly AdminStation[] = ['orders', 'menu', 'qr'];
 	const ADMIN_TIME_FORMATTER = new Intl.DateTimeFormat('fil-PH', {
 		hour: '2-digit',
 		minute: '2-digit',
@@ -64,11 +67,18 @@
 	let orderingQrError = '';
 	let orderingQrBusy = false;
 	let orderingQrRequest = 0;
+	let activeStation: AdminStation = 'orders';
 
 	$: sortedOrders = sortOrdersNewestFirst(orders);
 	$: kpis = deriveAdminKpis(kpiOrders);
 
 	onMount(() => {
+		const syncStationFromHash = (): void => {
+			activeStation = stationFromHash(window.location.hash);
+		};
+		window.addEventListener('hashchange', syncStationFromHash);
+		syncStationFromHash();
+
 		const unsubscribe = authStore.subscribe((state) => {
 			currentAuthStatus = state.status;
 			if (state.status !== 'authenticated') {
@@ -99,9 +109,94 @@
 			boardRequest += 1;
 			stopAdminPolling();
 			unsubscribe();
+			window.removeEventListener('hashchange', syncStationFromHash);
 			clearOrderingQr();
 		};
 	});
+
+	function stationFromHash(hash: string): AdminStation {
+		switch (hash.replace(/^#/, '').toLowerCase()) {
+			case 'menu':
+				return 'menu';
+			case 'qr':
+				return 'qr';
+			default:
+				return 'orders';
+		}
+	}
+
+	function stationTabId(station: AdminStation): string {
+		return `admin-tab-${station}`;
+	}
+
+	function stationLabel(station: AdminStation): string {
+		switch (station) {
+			case 'orders':
+				return 'MGA ORDER';
+			case 'menu':
+				return 'MENU';
+			case 'qr':
+				return 'QR NG MESA';
+		}
+	}
+
+	function stationNote(station: AdminStation): string {
+		switch (station) {
+			case 'orders':
+				return kpiStale ? 'naglo-load' : `${kpis.todayOrders} ngayon`;
+			case 'menu':
+				return 'setup ng ulam';
+			case 'qr':
+				return '';
+		}
+	}
+
+	function filterCount(option: AdminOrderFilter): string {
+		if (kpiStale) return '—';
+		if (option === 'all') return String(kpiOrders.length);
+		return String(kpiOrders.filter((order) => order.status === option).length);
+	}
+
+	function selectStation(station: AdminStation, updateHash = true): void {
+		activeStation = station;
+		if (!updateHash || typeof window === 'undefined') return;
+
+		const nextHash = station === 'orders' ? '' : `#${station}`;
+		if (window.location.hash === nextHash) return;
+		window.history.replaceState(
+			null,
+			'',
+			`${window.location.pathname}${window.location.search}${nextHash}`
+		);
+	}
+
+	function handleStationKeydown(event: KeyboardEvent, station: AdminStation): void {
+		const currentIndex = ADMIN_STATIONS.indexOf(station);
+		let nextIndex: number;
+		switch (event.key) {
+			case 'ArrowRight':
+			case 'ArrowDown':
+				nextIndex = (currentIndex + 1) % ADMIN_STATIONS.length;
+				break;
+			case 'ArrowLeft':
+			case 'ArrowUp':
+				nextIndex = (currentIndex - 1 + ADMIN_STATIONS.length) % ADMIN_STATIONS.length;
+				break;
+			case 'Home':
+				nextIndex = 0;
+				break;
+			case 'End':
+				nextIndex = ADMIN_STATIONS.length - 1;
+				break;
+			default:
+				return;
+		}
+
+		event.preventDefault();
+		const nextStation = ADMIN_STATIONS[nextIndex];
+		selectStation(nextStation);
+		window.setTimeout(() => document.getElementById(stationTabId(nextStation))?.focus());
+	}
 
 	function stopAdminPolling(): void {
 		adminPolling?.stop();
@@ -427,6 +522,8 @@
 </svelte:head>
 
 <div class="admin-board">
+	<h1 class="sr-only">Kusina — admin board</h1>
+
 	<section
 		class="kpi-grid"
 		aria-label="Buod ngayong araw"
@@ -450,237 +547,289 @@
 		/>
 	</section>
 
-	<div class="admin-workspace">
-		<section class="admin-orders" aria-labelledby="admin-title" aria-busy={boardBusy}>
-			<header class="admin-orders__header">
-				<div class="section-heading">
-					<PaintedSign id="admin-title" text="MGA ORDER" level="h1" delay="0.08s" />
-					<span class="section-sidenote">live board ng kusina</span>
-				</div>
-				<Button variant="quiet" size="small" onclick={logoutAndLeave}>Mag-logout</Button>
-			</header>
-
-			<div class="admin-filter-row">
-				<nav class="admin-status-tabs" aria-label="Salain ayon sa status ng kusina">
-					{#each ADMIN_ORDER_FILTERS as option (option)}
-						<button
-							class="admin-status-tab"
-							type="button"
-							aria-pressed={filter === option}
-							onclick={() => selectFilter(option)}
-						>
-							{adminOrderFilterLabel(option)}
-						</button>
-					{/each}
-				</nav>
-				<Button
-					variant="quiet"
-					size="small"
-					disabled={boardBusy}
-					busy={boardBusy}
-					onclick={refreshBoard}
+	<div class="admin-binder admin-workspace" data-admin-binder>
+		<div class="admin-binder-tabs" role="tablist" aria-label="Mga istasyon ng counter">
+			{#each ADMIN_STATIONS as station (station)}
+				<button
+					class="admin-binder-tab"
+					type="button"
+					role="tab"
+					id={stationTabId(station)}
+					aria-controls={`admin-station-${station}`}
+					aria-selected={activeStation === station}
+					tabindex={activeStation === station ? 0 : -1}
+					onclick={() => selectStation(station)}
+					onkeydown={(event) => handleStationKeydown(event, station)}
 				>
-					{boardBusy ? 'Nagre-refresh...' : 'I-refresh'}
-				</Button>
-			</div>
+					<span class="admin-binder-tab__label">{stationLabel(station)}</span>
+					{#if stationNote(station)}
+						<span class="admin-binder-tab__note hand">{stationNote(station)}</span>
+					{/if}
+				</button>
+			{/each}
+		</div>
 
-			{#if boardError}
-				<InlineAlert tone="error" title={boardErrorTitle}>{boardError}</InlineAlert>
-			{/if}
-
-			{#if boardState === 'loading' && sortedOrders.length === 0}
-				<Skeleton lines={7} label="Naglo-load ang mga order" />
-			{:else if boardState === 'error' && sortedOrders.length === 0}
-				<PaperPanel>
-					<EmptyState
-						title="Hindi pa mabuksan ang ledger"
-						description="Subukan muli kapag handa na ang kusina connection."
-						titleId="orders-error-title"
-					/>
-					<div class="admin-state__action">
-						<Button variant="ghost" onclick={refreshBoard}>Subukan muli</Button>
+		<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+		<section
+			class="admin-station admin-station--orders"
+			role="tabpanel"
+			id="admin-station-orders"
+			aria-labelledby="admin-tab-orders"
+			hidden={activeStation !== 'orders'}
+		>
+			<section class="admin-orders" aria-labelledby="admin-title" aria-busy={boardBusy}>
+				<header class="admin-orders__header">
+					<div class="section-heading">
+						<PaintedSign id="admin-title" text="MGA ORDER" level="h2" delay="0.08s" />
+						<span class="section-sidenote">live board ng kusina</span>
 					</div>
-				</PaperPanel>
-			{:else if sortedOrders.length === 0}
-				<PaperPanel>
-					<EmptyState
-						title={emptyOrdersTitle()}
-						description="Walang row na bumalik mula sa kasalukuyang filter."
-						titleId="orders-empty-title"
-					/>
-				</PaperPanel>
-			{:else}
-				<p class="admin-ledger-hint" id="admin-ledger-hint">
-					I-scroll pahalang para makita ang status, bayad, at mga aksyon.
-				</p>
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to horizontal overflow) -->
-				<div
-					class="admin-ledger-wrap"
-					role="region"
-					aria-label="Scrollable na ledger ng mga order"
-					aria-describedby="admin-ledger-hint"
-					tabindex="0"
-				>
-					<table class="admin-ledger">
-						<caption class="sr-only">Mga order, pinakabago muna</caption>
-						<thead>
-							<tr>
-								<th scope="col">Oras</th>
-								<th scope="col">#</th>
-								<th scope="col">Laman</th>
-								<th scope="col">Kabuuan</th>
-								<th scope="col">Kusina</th>
-								<th scope="col">Bayad</th>
-								<th scope="col">Aksyon</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each sortedOrders as order (order.order_id)}
-								{@const nextStatus = order.status === null ? null : nextOrderStatus(order.status)}
-								{@const rowBusy = busyRows[order.order_id] === true}
-								<tr data-order-id={order.order_id}>
-									<td class="admin-ledger__time">
-										<time datetime={formatAdminDateTime(order.created_at ?? order.updated_at)}
-											>{formatRowTime(order)}</time
-										>
-									</td>
-									<td class="admin-ledger__number">{formatOrderNumber(order.order_id)}</td>
-									<td>{orderItemsLabel(order)}</td>
-									<td class="admin-ledger__total">{formatPeso(orderTotalCents(order))}</td>
-									<td>
-										{#if order.status}
-											<StatusChip status={order.status} />
-										{:else}
-											<span class="admin-unknown-status">Walang status</span>
-										{/if}
-									</td>
-									<td><StatusChip kind="payment" status={order.payment_status} /></td>
-									<td class="admin-ledger__actions">
-										<div class="admin-row-actions">
-											{#if nextStatus}
-												<button
-													class="admin-icon-button"
-													type="button"
-													disabled={rowBusy}
-													aria-busy={rowBusy}
-													aria-label={actionAriaLabel('advance', order)}
-													title={actionAriaLabel('advance', order)}
-													onclick={() => void runRowAction(order, 'advance')}
-												>
-													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-														<path
-															d="M4 12.5c5-.7 9-.3 14.5-.7M15 7.5c1.8 1.7 3 2.9 4.5 4.5-1.5 1.6-2.9 2.9-4.5 4.3"
-														/>
-													</svg>
-												</button>
+					<Button variant="quiet" size="small" onclick={logoutAndLeave}>Mag-logout</Button>
+				</header>
+
+				<div class="admin-filter-row admin-station-bar">
+					<nav class="admin-status-tabs" aria-label="Salain ayon sa status ng kusina">
+						{#each ADMIN_ORDER_FILTERS as option (option)}
+							<button
+								class="admin-status-tab"
+								type="button"
+								aria-label={adminOrderFilterLabel(option)}
+								aria-pressed={filter === option}
+								onclick={() => selectFilter(option)}
+							>
+								<span class="admin-status-tab__name">{adminOrderFilterLabel(option)}</span>
+								<span class="admin-status-tab__count till" aria-hidden="true"
+									>{filterCount(option)}</span
+								>
+							</button>
+						{/each}
+					</nav>
+					<Button
+						variant="quiet"
+						size="small"
+						disabled={boardBusy}
+						busy={boardBusy}
+						onclick={refreshBoard}
+					>
+						{boardBusy ? 'Nagre-refresh...' : 'I-refresh'}
+					</Button>
+				</div>
+
+				{#if boardError}
+					<InlineAlert tone="error" title={boardErrorTitle}>{boardError}</InlineAlert>
+				{/if}
+
+				{#if boardState === 'loading' && sortedOrders.length === 0}
+					<Skeleton lines={7} label="Naglo-load ang mga order" />
+				{:else if boardState === 'error' && sortedOrders.length === 0}
+					<PaperPanel>
+						<EmptyState
+							title="Hindi pa mabuksan ang ledger"
+							description="Subukan muli kapag handa na ang kusina connection."
+							titleId="orders-error-title"
+						/>
+						<div class="admin-state__action">
+							<Button variant="ghost" onclick={refreshBoard}>Subukan muli</Button>
+						</div>
+					</PaperPanel>
+				{:else if sortedOrders.length === 0}
+					<PaperPanel>
+						<EmptyState
+							title={emptyOrdersTitle()}
+							description="Walang row na bumalik mula sa kasalukuyang filter."
+							titleId="orders-empty-title"
+						/>
+					</PaperPanel>
+				{:else}
+					<p class="admin-ledger-hint" id="admin-ledger-hint">
+						I-scroll pahalang para makita ang status, bayad, at mga aksyon.
+					</p>
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to horizontal overflow) -->
+					<div
+						class="admin-ledger-wrap"
+						role="region"
+						aria-label="Scrollable na ledger ng mga order"
+						aria-describedby="admin-ledger-hint"
+						tabindex="0"
+					>
+						<table class="admin-ledger">
+							<caption class="sr-only">Mga order, pinakabago muna</caption>
+							<thead>
+								<tr>
+									<th scope="col">Oras</th>
+									<th scope="col">#</th>
+									<th scope="col">Laman</th>
+									<th scope="col">Kabuuan</th>
+									<th scope="col">Kusina</th>
+									<th scope="col">Bayad</th>
+									<th scope="col">Aksyon</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each sortedOrders as order (order.order_id)}
+									{@const nextStatus = order.status === null ? null : nextOrderStatus(order.status)}
+									{@const rowBusy = busyRows[order.order_id] === true}
+									<tr data-order-id={order.order_id}>
+										<td class="admin-ledger__time">
+											<time datetime={formatAdminDateTime(order.created_at ?? order.updated_at)}
+												>{formatRowTime(order)}</time
+											>
+										</td>
+										<td class="admin-ledger__number">{formatOrderNumber(order.order_id)}</td>
+										<td>{orderItemsLabel(order)}</td>
+										<td class="admin-ledger__total">{formatPeso(orderTotalCents(order))}</td>
+										<td>
+											{#if order.status}
+												<StatusChip status={order.status} />
+											{:else}
+												<span class="admin-unknown-status">Walang status</span>
 											{/if}
-											{#if order.status !== 'Cancelled' && order.payment_status !== 'paid'}
-												<button
-													class="admin-icon-button"
-													type="button"
-													disabled={rowBusy}
-													aria-busy={rowBusy}
-													aria-label={actionAriaLabel('pay', order)}
-													title={actionAriaLabel('pay', order)}
-													onclick={() => void runRowAction(order, 'pay')}
-												>
-													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-														<path
-															d="M7.5 4.5l9.3-.3M12 4.3V14M6 9.5c3.5-.7 8-.3 12-.7-2.5 4.2-7.5 6.7-11.5 10.5M12 15.5c2 1.3 3.8 2.5 6 4"
-														/>
-													</svg>
-												</button>
-											{/if}
-											{#if order.status && canCancelOrder(order.status)}
+										</td>
+										<td><StatusChip kind="payment" status={order.payment_status} /></td>
+										<td class="admin-ledger__actions">
+											<div class="admin-row-actions">
+												{#if nextStatus}
+													<button
+														class="admin-icon-button"
+														type="button"
+														disabled={rowBusy}
+														aria-busy={rowBusy}
+														aria-label={actionAriaLabel('advance', order)}
+														title={actionAriaLabel('advance', order)}
+														onclick={() => void runRowAction(order, 'advance')}
+													>
+														<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+															<path
+																d="M4 12.5c5-.7 9-.3 14.5-.7M15 7.5c1.8 1.7 3 2.9 4.5 4.5-1.5 1.6-2.9 2.9-4.5 4.3"
+															/>
+														</svg>
+													</button>
+												{/if}
+												{#if order.status !== 'Cancelled' && order.payment_status !== 'paid'}
+													<button
+														class="admin-icon-button"
+														type="button"
+														disabled={rowBusy}
+														aria-busy={rowBusy}
+														aria-label={actionAriaLabel('pay', order)}
+														title={actionAriaLabel('pay', order)}
+														onclick={() => void runRowAction(order, 'pay')}
+													>
+														<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+															<path />
+														</svg>
+													</button>
+												{/if}
+												{#if order.status && canCancelOrder(order.status)}
+													<button
+														class="admin-icon-button admin-icon-button--danger"
+														type="button"
+														disabled={rowBusy}
+														aria-busy={rowBusy}
+														aria-label={actionAriaLabel('cancel', order)}
+														title={actionAriaLabel('cancel', order)}
+														onclick={() => void runRowAction(order, 'cancel')}
+													>
+														<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
+															<path
+																d="M6.5 6.8c3.5 3.2 7.5 7.4 11 10.5M17.3 6.5c-3.5 3.7-7 7.5-10.5 11"
+															/>
+														</svg>
+													</button>
+												{/if}
 												<button
 													class="admin-icon-button admin-icon-button--danger"
 													type="button"
 													disabled={rowBusy}
 													aria-busy={rowBusy}
-													aria-label={actionAriaLabel('cancel', order)}
-													title={actionAriaLabel('cancel', order)}
-													onclick={() => void runRowAction(order, 'cancel')}
+													aria-label={actionAriaLabel('delete', order)}
+													title={actionAriaLabel('delete', order)}
+													onclick={() => void runRowAction(order, 'delete')}
 												>
 													<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
 														<path
-															d="M6.5 6.8c3.5 3.2 7.5 7.4 11 10.5M17.3 6.5c-3.5 3.7-7 7.5-10.5 11"
+															d="M5 7c4.5-.4 9.5-.3 14 .1M9.5 6.8l.5-3 4.2.2.5 2.9M7 7.5 8.2 20h7.7L17 7.4M10.5 10.5l.5 6.5M14 10.4l-.4 6.6"
 														/>
 													</svg>
 												</button>
-											{/if}
-											<button
-												class="admin-icon-button admin-icon-button--danger"
-												type="button"
-												disabled={rowBusy}
-												aria-busy={rowBusy}
-												aria-label={actionAriaLabel('delete', order)}
-												title={actionAriaLabel('delete', order)}
-												onclick={() => void runRowAction(order, 'delete')}
-											>
-												<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-													<path
-														d="M5 7c4.5-.4 9.5-.3 14 .1M9.5 6.8l.5-3 4.2.2.5 2.9M7 7.5 8.2 20h7.7L17 7.4M10.5 10.5l.5 6.5M14 10.4l-.4 6.6"
-													/>
-												</svg>
-											</button>
-										</div>
-										{#if rowErrors[order.order_id]}
-											<div class="admin-row-error">
-												<InlineAlert tone="error" title={`Order #${order.order_id}`}>
-													{rowErrors[order.order_id]}
-												</InlineAlert>
 											</div>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-			<p class="admin-ledger-note">
-				Ang “Bayad” ay payment status mula sa server: unpaid, paid, o failed.
-			</p>
+											{#if rowErrors[order.order_id]}
+												<div class="admin-row-error">
+													<InlineAlert tone="error" title={`Order #${order.order_id}`}>
+														{rowErrors[order.order_id]}
+													</InlineAlert>
+												</div>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+				<p class="admin-ledger-note">
+					Ang “Bayad” ay payment status mula sa server: unpaid, paid, o failed.
+				</p>
+			</section>
 		</section>
 
-		<aside class="admin-qr-panel paper-panel" aria-labelledby="ordering-qr-title">
-			<h2 class="sign-type admin-qr-panel__title" id="ordering-qr-title">QR NG MESA</h2>
-			<div class="admin-qr-panel__preview">
-				{#if orderingQrUrl}
-					<img
-						class="ordering-qr"
-						src={orderingQrUrl}
-						alt="QR code para sa general ordering menu"
-					/>
-				{:else if orderingQrBusy}
-					<Skeleton lines={3} label="Naglo-load ang ordering QR" />
-				{:else}
-					<p class="admin-qr-panel__empty">Walang QR na ipinapakita ngayon.</p>
-				{/if}
-			</div>
-			<p class="admin-qr-panel__route">General ordering QR · walang table identity o expiry.</p>
-			<p class="admin-qr-panel__note">i-print, idikit sa mesa — 'yan na ang “waiter” ninyo</p>
-			{#if orderingQrError}
-				<InlineAlert tone="error" title="Hindi ma-load ang QR">{orderingQrError}</InlineAlert>
-			{/if}
-			<div class="admin-qr-panel__actions">
-				<Button
-					variant="enamel"
-					disabled={orderingQrBusy}
-					busy={orderingQrBusy}
-					onclick={refreshOrderingQr}
-				>
-					{orderingQrBusy ? 'Kinukuha...' : 'Kumuha ng bagong QR'}
-				</Button>
-				{#if orderingQrUrl && orderingQrBlob}
-					<Button variant="ghost" onclick={downloadOrderingQr}>I-download ang SVG</Button>
-				{/if}
-			</div>
-			<p class="admin-qr-panel__footnote">
-				Isang QR para sa buong kainan. Ang pagkuha nito ay para sa admin lang.
-			</p>
-		</aside>
-	</div>
+		<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+		<section
+			class="admin-station admin-station--menu"
+			role="tabpanel"
+			id="admin-station-menu"
+			aria-labelledby="admin-tab-menu"
+			hidden={activeStation !== 'menu'}
+		>
+			<AdminMenuBoard active={currentAuthStatus === 'authenticated' && activeStation === 'menu'} />
+		</section>
 
-	<AdminMenuBoard active={currentAuthStatus === 'authenticated'} />
+		<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+		<section
+			class="admin-station admin-station--qr"
+			role="tabpanel"
+			id="admin-station-qr"
+			aria-labelledby="admin-tab-qr"
+			hidden={activeStation !== 'qr'}
+		>
+			<div class="admin-qr-wrap">
+				<aside class="admin-qr-panel paper-panel" aria-labelledby="ordering-qr-title">
+					<h2 class="sign-type admin-qr-panel__title" id="ordering-qr-title">QR NG MESA</h2>
+					<div class="admin-qr-panel__preview">
+						{#if orderingQrUrl}
+							<img
+								class="ordering-qr"
+								src={orderingQrUrl}
+								alt="QR code para sa general ordering menu"
+							/>
+						{:else if orderingQrBusy}
+							<Skeleton lines={3} label="Naglo-load ang ordering QR" />
+						{:else}
+							<p class="admin-qr-panel__empty">Walang QR na ipinapakita ngayon.</p>
+						{/if}
+					</div>
+					<p class="admin-qr-panel__route">General ordering QR · walang table identity o expiry.</p>
+					<p class="admin-qr-panel__note">i-print, idikit sa mesa — 'yan na ang “waiter” ninyo</p>
+					{#if orderingQrError}
+						<InlineAlert tone="error" title="Hindi ma-load ang QR">{orderingQrError}</InlineAlert>
+					{/if}
+					<div class="admin-qr-panel__actions">
+						<Button
+							variant="enamel"
+							disabled={orderingQrBusy}
+							busy={orderingQrBusy}
+							onclick={refreshOrderingQr}
+						>
+							{orderingQrBusy ? 'Kinukuha...' : 'Kumuha ng bagong QR'}
+						</Button>
+						{#if orderingQrUrl && orderingQrBlob}
+							<Button variant="ghost" onclick={downloadOrderingQr}>I-download ang SVG</Button>
+						{/if}
+					</div>
+					<p class="admin-qr-panel__footnote">
+						Isang QR para sa buong kainan. Ang pagkuha nito ay para sa admin lang.
+					</p>
+				</aside>
+			</div>
+		</section>
+	</div>
 </div>

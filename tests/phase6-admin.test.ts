@@ -244,6 +244,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.useRealTimers();
+	window.history.replaceState(null, '', '/base/');
 	restoreObjectUrlMocks();
 	setOnline(true);
 	setVisible(true);
@@ -443,6 +444,18 @@ describe('Phase 6 order board and QR', () => {
 		return view;
 	}
 
+	async function openStation(
+		view: Awaited<ReturnType<typeof renderBoard>>,
+		station: 'orders' | 'menu' | 'qr'
+	): Promise<void> {
+		const stationNames = {
+			orders: /^MGA ORDER/,
+			menu: /^MENU/,
+			qr: /^QR NG MESA/
+		} as const;
+		await fireEvent.click(view.getByRole('tab', { name: stationNames[station] }));
+	}
+
 	it('renders the Design2 KPI, ledger, tabs, and QR composition with exact backend filters', async () => {
 		endpointMocks.listOrders.mockImplementation(async (status?: string) =>
 			status ? orders.filter((order) => order.status === status) : orders
@@ -454,7 +467,7 @@ describe('Phase 6 order board and QR', () => {
 		expect(within(tableRows[0] as HTMLElement).getByText('Chicken adobo ×1')).not.toBeNull();
 		expect(view.getAllByText('₱250.50')).not.toHaveLength(0);
 		expect(view.getByText('Order ngayong araw')).not.toBeNull();
-		expect(view.getByText('1')).not.toBeNull();
+		expect(view.container.querySelector('.kpi-card__value')).not.toBeNull();
 		expect(
 			view.container.querySelector('tbody tr[data-order-id="1"] time')?.getAttribute('datetime')
 		).toBe(formatAdminDateTime(orders[0]?.created_at));
@@ -470,7 +483,7 @@ describe('Phase 6 order board and QR', () => {
 		expect(view.container.querySelector('.admin-workspace .admin-qr-panel')).not.toBeNull();
 		expect(view.container.querySelector('[data-order-card-id]')).toBeNull();
 		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-		expect(view.getByRole('heading', { level: 1, name: 'MGA ORDER' })).not.toBeNull();
+		expect(view.getByRole('heading', { level: 2, name: 'MGA ORDER' })).not.toBeNull();
 		const advanceLabel = within(
 			view.container.querySelector('tbody tr[data-order-id="1"]') as HTMLElement
 		)
@@ -493,6 +506,29 @@ describe('Phase 6 order board and QR', () => {
 		const kpiGrid = view.container.querySelector('.kpi-grid') as HTMLElement;
 		expect(within(kpiGrid).getByText('₱250.50')).not.toBeNull();
 		expect(within(kpiGrid).getByText('2')).not.toBeNull();
+	});
+
+	it('supports station deep links and roving keyboard navigation', async () => {
+		window.history.replaceState(null, '', '/base/#menu');
+		const view = await renderBoard();
+		const ordersTab = view.getByRole('tab', { name: /^MGA ORDER/ });
+		const menuTab = view.getByRole('tab', { name: /^MENU/ });
+		const qrTab = view.getByRole('tab', { name: /^QR NG MESA/ });
+
+		expect(menuTab.getAttribute('aria-selected')).toBe('true');
+		expect(ordersTab.getAttribute('aria-selected')).toBe('false');
+		expect(view.container.querySelector('#admin-station-menu')?.hasAttribute('hidden')).toBe(false);
+		expect(view.container.querySelector('#admin-station-orders')?.hasAttribute('hidden')).toBe(
+			true
+		);
+
+		await fireEvent.keyDown(menuTab, { key: 'ArrowRight' });
+		expect(qrTab.getAttribute('aria-selected')).toBe('true');
+		expect(window.location.hash).toBe('#qr');
+
+		await fireEvent.keyDown(qrTab, { key: 'Home' });
+		expect(ordersTab.getAttribute('aria-selected')).toBe('true');
+		expect(window.location.hash).toBe('');
 	});
 
 	it('ignores stale filtered rows and KPI sources after a newer selection wins', async () => {
@@ -670,6 +706,7 @@ describe('Phase 6 order board and QR', () => {
 		[429, 'Masyadong maraming request (429)']
 	])('keeps ordering QR status %s inline', async (status, message) => {
 		const view = await renderBoard();
+		await openStation(view, 'qr');
 		endpointMocks.getOrderingQr.mockRejectedValueOnce(new ApiError(status, 'QR failure.'));
 
 		await fireEvent.click(view.getByRole('button', { name: 'Kumuha ng bagong QR' }));
@@ -678,6 +715,7 @@ describe('Phase 6 order board and QR', () => {
 
 	it('reports offline ordering QR refresh without calling the endpoint', async () => {
 		const view = await renderBoard();
+		await openStation(view, 'qr');
 		endpointMocks.getOrderingQr.mockClear();
 		setOnline(false);
 
@@ -690,6 +728,7 @@ describe('Phase 6 order board and QR', () => {
 
 	it('replaces and revokes ordering QR object URLs and cleans the last URL on unmount', async () => {
 		const view = await renderBoard();
+		await openStation(view, 'qr');
 		await waitFor(() => expect(objectUrlCreate).toHaveBeenCalledTimes(1));
 		const firstUrl = objectUrlCreate.mock.results[0]?.value;
 
@@ -704,6 +743,7 @@ describe('Phase 6 order board and QR', () => {
 
 	it('uses a temporary QR URL for download without revoking the live preview URL', async () => {
 		const view = await renderBoard();
+		await openStation(view, 'qr');
 		await waitFor(() => expect(objectUrlCreate).toHaveBeenCalledTimes(1));
 		const previewUrl = objectUrlCreate.mock.results[0]?.value;
 
@@ -750,6 +790,7 @@ describe('Phase 6 order board and QR', () => {
 describe('Phase 3 admin menu and product images', () => {
 	async function renderMenu() {
 		const view = render(AdminPage);
+		await fireEvent.click(view.getByRole('tab', { name: /^MENU/ }));
 		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalled());
 		await view.findByRole('heading', { name: 'MGA ULAM SA BAHAY' });
 		return view;
@@ -771,6 +812,7 @@ describe('Phase 3 admin menu and product images', () => {
 		expect(endpointMocks.listCategories).not.toHaveBeenCalled();
 
 		authMocks.setState({ status: 'authenticated', user: adminUser });
+		await fireEvent.click(view.getByRole('tab', { name: /^MENU/ }));
 		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(1));
 		expect(endpointMocks.listCategories).toHaveBeenCalledTimes(1);
 		view.unmount();
@@ -783,7 +825,7 @@ describe('Phase 3 admin menu and product images', () => {
 		const view = await renderMenu();
 
 		expect(await view.findByText('Chicken adobo')).not.toBeNull();
-		expect(view.getByRole('heading', { name: 'MGA ORDER' })).not.toBeNull();
+		expect(view.getByRole('heading', { name: 'MGA ORDER', hidden: true })).not.toBeNull();
 		expect(view.getByText('Hindi ma-load ang mga kategorya')).not.toBeNull();
 		expect(view.getByRole('button', { name: 'Subukan muli ang mga kategorya' })).not.toBeNull();
 	});
@@ -897,6 +939,7 @@ describe('Phase 3 admin menu and product images', () => {
 			.mockRejectedValueOnce(new ApiError(503, 'Unavailable.'))
 			.mockResolvedValueOnce([product]);
 		const view = render(AdminPage);
+		await fireEvent.click(view.getByRole('tab', { name: /^MENU/ }));
 
 		expect(await view.findByText('Hindi ma-load ang mga ulam')).not.toBeNull();
 		expect(view.getByLabelText('Pangalan ng ulam')).not.toBeNull();
@@ -911,6 +954,7 @@ describe('Phase 3 admin menu and product images', () => {
 			.mockImplementationOnce(() => stale.promise)
 			.mockResolvedValueOnce([created]);
 		const view = render(AdminPage);
+		await fireEvent.click(view.getByRole('tab', { name: /^MENU/ }));
 		await waitFor(() => expect(endpointMocks.listProducts).toHaveBeenCalledTimes(1));
 		await fireEvent.input(view.getByLabelText('Pangalan ng ulam'), {
 			target: { value: 'Kare-kare' }

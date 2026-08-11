@@ -257,21 +257,13 @@ describe('Phase 7 route accessibility', () => {
 		await waitFor(() =>
 			expect(view.container.querySelector('tbody tr[data-order-id="42"]')).not.toBeNull()
 		);
-		await waitFor(() =>
-			expect(view.container.querySelector('tr[data-admin-product-id="1"]')).not.toBeNull()
-		);
 		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-		const [desktopLedger, menuLedger] = view.getAllByRole('table');
+		const desktopLedger = view.getByRole('table');
 		expect(
 			within(desktopLedger)
 				.getAllByRole('columnheader')
 				.map((cell) => cell.textContent?.trim())
 		).toEqual(['Oras', '#', 'Laman', 'Kabuuan', 'Kusina', 'Bayad', 'Aksyon']);
-		expect(
-			within(menuLedger)
-				.getAllByRole('columnheader')
-				.map((cell) => cell.textContent?.trim())
-		).toEqual(['Larawan', 'Ulam', 'Presyo', 'Kategorya', 'Aksyon']);
 		const statusTabs = view.getByRole('navigation', {
 			name: 'Salain ayon sa status ng kusina'
 		});
@@ -289,27 +281,41 @@ describe('Phase 7 route accessibility', () => {
 				.getAttribute('tabindex')
 		).toBe('0');
 		expect(
-			view
-				.getByRole('region', { name: 'Scrollable na listahan ng mga ulam' })
-				.getAttribute('tabindex')
-		).toBe('0');
-		expect(
 			within(desktopLedger).getByRole('button', { name: /Isulong ang order #42/ })
 		).not.toBeNull();
 		expect(
 			within(desktopLedger).getByRole('button', { name: /Markahang bayad ang order #42/ })
 		).not.toBeNull();
+
+		await fireEvent.click(view.getByRole('tab', { name: /^MENU/ }));
+		await waitFor(() =>
+			expect(view.container.querySelector('tr[data-admin-product-id="1"]')).not.toBeNull()
+		);
+		const menuLedger = view.getByRole('table');
+		expect(
+			within(menuLedger)
+				.getAllByRole('columnheader')
+				.map((cell) => cell.textContent?.trim())
+		).toEqual(['Larawan', 'Ulam', 'Presyo', 'Kategorya', 'Aksyon']);
+		expect(
+			view
+				.getByRole('region', { name: 'Scrollable na listahan ng mga ulam' })
+				.getAttribute('tabindex')
+		).toBe('0');
+
 		expect(view.getByLabelText(/Larawan.*opsyonal, puwede ring mamaya/i)).not.toBeNull();
 		expect(view.getByLabelText('Ikabit ang larawan ng Chicken adobo')).not.toBeNull();
 		expect(
 			view.getByRole('button', { name: 'Alisin ang larawan ng Chicken adobo' })
 		).not.toBeNull();
-		expect(view.getByRole('img', { name: 'QR code para sa general ordering menu' })).not.toBeNull();
-
 		const productForm = view.container.querySelector('.admin-menu-form');
 		expect(productForm).not.toBeNull();
 		await fireEvent.submit(productForm as HTMLFormElement);
 		expect(view.getByRole('alert').textContent).toContain('Ilagay ang pangalan ng ulam.');
+		await expectAccessible(view.container);
+
+		await fireEvent.click(view.getByRole('tab', { name: /^QR NG MESA/ }));
+		expect(view.getByRole('img', { name: 'QR code para sa general ordering menu' })).not.toBeNull();
 		await expectAccessible(view.container);
 	});
 });

@@ -2507,3 +2507,146 @@ a {
 		height: 132px;
 	}
 }
+
+/* Counter binder stations from the Design2 admin board. */
+.admin-binder.admin-workspace {
+	display: block;
+	margin-top: 2px;
+}
+
+.admin-binder-tabs {
+	display: flex;
+	align-items: flex-end;
+	gap: 6px;
+	padding: 0 6px;
+	border-bottom: 1.5px solid var(--steel-edge);
+	overflow-x: auto;
+	scrollbar-color: var(--steel-deep) var(--steel-bg);
+}
+
+.admin-binder-tab {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 8px;
+	min-height: var(--hit);
+	margin-bottom: -1.5px;
+	padding: 10px 16px 9px;
+	border: 1.5px solid var(--steel-edge);
+	border-radius: 3px 3px 0 0;
+	background: var(--paper-dim);
+	color: var(--ink-soft);
+	white-space: nowrap;
+}
+
+.admin-binder-tab:hover {
+	background: var(--paper);
+	color: var(--ink);
+}
+
+.admin-binder-tab[aria-selected='true'] {
+	position: relative;
+	border-color: var(--ink);
+	border-bottom-color: var(--paper);
+	background: var(--paper);
+	color: var(--ink);
+}
+
+.admin-binder-tab__label {
+	font-family: var(--font-sign);
+	font-size: 0.72rem;
+	font-weight: 400;
+	letter-spacing: 0.06em;
+}
+
+.admin-binder-tab__note {
+	font-size: 0.95rem;
+}
+
+.admin-station {
+	padding-top: 18px;
+}
+
+.admin-station--orders .admin-orders {
+	gap: 14px;
+}
+
+.admin-station-bar {
+	align-items: center;
+	margin-bottom: 0;
+}
+
+.admin-station--orders .admin-status-tabs {
+	flex: 1 1 240px;
+	flex-wrap: wrap;
+	gap: 4px 20px;
+}
+
+.admin-station--orders .admin-status-tab {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 7px;
+	min-height: var(--hit);
+	padding: 4px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--ink-soft);
+	font-family: var(--font-till);
+	font-size: 0.78rem;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.admin-station--orders .admin-status-tab:hover,
+.admin-station--orders .admin-status-tab[aria-pressed='true'] {
+	background: transparent;
+	color: var(--pen);
+}
+
+.admin-station--orders .admin-status-tab__count {
+	color: var(--ink);
+	font-size: 1.05rem;
+	font-weight: 600;
+	letter-spacing: 0;
+}
+
+.admin-station--orders .admin-status-tab:hover .admin-status-tab__count,
+.admin-station--orders .admin-status-tab[aria-pressed='true'] .admin-status-tab__count {
+	color: var(--pen);
+}
+
+.admin-qr-wrap {
+	max-width: 400px;
+	margin: 6px auto 0;
+}
+
+.admin-station--qr .admin-qr-panel {
+	text-align: center;
+}
+
+@media (max-width: 760px) {
+	.admin-station-bar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.admin-station-bar > .btn {
+		align-self: flex-start;
+	}
+}
+
+@media (max-width: 560px) {
+	.admin-binder-tab {
+		padding: 8px 12px;
+	}
+
+	.admin-binder-tab__note {
+		display: none;
+	}
+
+	.admin-station--orders .admin-status-tabs {
+		display: flex;
+		gap: 4px 12px;
+	}
+}
