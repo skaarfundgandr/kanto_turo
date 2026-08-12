@@ -48,6 +48,8 @@
 	let formBusy = false;
 	let formError = '';
 	let formMessage = '';
+	let toastMessage = '';
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 	let busyProducts: Record<number, boolean> = {};
 	let rowErrors: Record<number, string> = {};
 	let rowMessages: Record<number, string> = {};
@@ -80,6 +82,7 @@
 			mounted = false;
 			categoriesRequest += 1;
 			productsRequest += 1;
+			if (toastTimer !== null) clearTimeout(toastTimer);
 			revokePreview();
 		};
 	});
@@ -326,10 +329,11 @@
 					await uploadProductImage(created.product_id, file);
 					const refreshResult = await loadProducts(false);
 					resetForm();
-					formMessage =
-						refreshResult.status === 'success'
-							? `Naidagdag ang ${validated.name} kasama ang larawan.`
-							: `Naidagdag ang ${validated.name} at naikabit ang larawan, pero hindi na-refresh ang listahan.`;
+					if (refreshResult.status === 'success') {
+						showToast(`Naidagdag ang ${validated.name} kasama ang larawan.`);
+					} else {
+						formMessage = `Naidagdag ang ${validated.name} at naikabit ang larawan, pero hindi na-refresh ang listahan.`;
+					}
 					return;
 				} catch (error) {
 					rowErrors = {
@@ -343,12 +347,28 @@
 			}
 
 			resetForm();
-			formMessage = `Naidagdag ang ${validated.name} sa menu.`;
+			showToast(`Naidagdag ang ${validated.name} sa menu.`);
 		} catch (error) {
 			formError = errorMessage(error, 'create');
 		} finally {
 			formBusy = false;
 		}
+	}
+
+	function showToast(message: string): void {
+		if (!mounted) return;
+		if (toastTimer !== null) clearTimeout(toastTimer);
+		toastMessage = message;
+		toastTimer = setTimeout(() => {
+			toastMessage = '';
+			toastTimer = null;
+		}, 5_000);
+	}
+
+	function dismissToast(): void {
+		if (toastTimer !== null) clearTimeout(toastTimer);
+		toastTimer = null;
+		toastMessage = '';
 	}
 
 	function replaceSelectedFile(file: File | null): void {
@@ -475,6 +495,19 @@
 </script>
 
 <div class="admin-menu-board" data-admin-menu-board>
+	<div
+		class="admin-menu-toast"
+		class:admin-menu-toast--visible={toastMessage}
+		role="status"
+		aria-label="Notification sa menu"
+	>
+		{#if toastMessage}
+			<span>{toastMessage}</span>
+			<button type="button" aria-label="Isara ang notification" onclick={dismissToast}>
+				&times;
+			</button>
+		{/if}
+	</div>
 	<p class="hand admin-menu-board__note">dagdag ulam, ikabit ang larawan</p>
 
 	<div class="admin-menu-grid">

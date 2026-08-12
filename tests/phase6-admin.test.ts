@@ -471,10 +471,7 @@ describe('Phase 6 order board and QR', () => {
 		await fireEvent.click(view.getByRole('tab', { name: stationNames[station] }));
 	}
 
-	it('renders the Design2 KPI, ledger, tabs, and QR composition with exact backend filters', async () => {
-		endpointMocks.listOrders.mockImplementation(async (status?: string) =>
-			status ? orders.filter((order) => order.status === status) : orders
-		);
+	it('renders the Design2 KPI, ledger, tabs, and QR composition with local filters', async () => {
 		const view = await renderBoard();
 		const tableRows = Array.from(view.container.querySelectorAll('tbody tr[data-order-id]'));
 		expect(tableRows.map((row) => row.getAttribute('data-order-id'))).toEqual(['1', '2', '3']);
@@ -513,9 +510,9 @@ describe('Phase 6 order board and QR', () => {
 		expect(advanceLabel).not.toContain('→');
 
 		const filter = view.getByRole('button', { name: 'Tinanggap' });
+		const callsBeforeFilter = endpointMocks.listOrders.mock.calls.length;
 		await fireEvent.click(filter);
-		await waitFor(() => expect(endpointMocks.listOrders).toHaveBeenCalledWith('Pending'));
-		expect(endpointMocks.listOrders).toHaveBeenCalledWith();
+		expect(endpointMocks.listOrders).toHaveBeenCalledTimes(callsBeforeFilter);
 		expect(filter.getAttribute('aria-pressed')).toBe('true');
 		await waitFor(() =>
 			expect(
@@ -552,78 +549,39 @@ describe('Phase 6 order board and QR', () => {
 		expect(window.location.hash).toBe('');
 	});
 
-	it('ignores stale filtered rows and KPI sources after a newer selection wins', async () => {
-		const pendingRows = deferred<Order[]>();
-		const pendingKpiOrders = deferred<Order[]>();
-		const latestAllOrders = deferred<Order[]>();
+	it('changes filters locally while a refresh is in flight', async () => {
 		const view = await renderBoard();
-		let unfilteredCalls = 0;
-		endpointMocks.listOrders.mockImplementation((status?: string) => {
-			if (status === 'Pending') return pendingRows.promise;
-			unfilteredCalls += 1;
-			return unfilteredCalls === 1 ? pendingKpiOrders.promise : latestAllOrders.promise;
-		});
+		const refreshedOrders = deferred<Order[]>();
+		endpointMocks.listOrders.mockReturnValueOnce(refreshedOrders.promise);
 
+		await fireEvent.click(view.getByRole('button', { name: 'I-refresh' }));
 		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
-		await fireEvent.click(view.getByRole('button', { name: 'Lahat' }));
+		expect(view.container.querySelector('tbody tr[data-order-id="1"]')).not.toBeNull();
+		expect(view.container.querySelector('.skeleton')).toBeNull();
 
-		latestAllOrders.resolve([orders[1]!]);
+		refreshedOrders.resolve([orders[1]!]);
 		await waitFor(() =>
 			expect(
-				Array.from(view.container.querySelectorAll('tbody tr[data-order-id]')).map((row) =>
-					row.getAttribute('data-order-id')
-				)
-			).toEqual(['2'])
+				view.queryByRole('heading', { name: 'Walang order sa status na Tinanggap' })
+			).not.toBeNull()
 		);
+	});
 
-		pendingRows.resolve([orders[0]!]);
-		pendingKpiOrders.resolve([orders[2]!]);
-		await waitFor(() =>
-			expect(view.container.querySelector('tbody tr[data-order-id="2"]')).not.toBeNull()
-		);
+	it('keeps current KPIs and rows when a refresh fails', async () => {
+		const view = await renderBoard();
+		endpointMocks.listOrders.mockRejectedValueOnce(new ApiError(503, 'Refresh failure.'));
+
+		await fireEvent.click(view.getByRole('button', { name: 'I-refresh' }));
+
+		await view.findByText('Refresh failure.');
+		expect(view.container.querySelector('[data-kpi-stale="false"]')).not.toBeNull();
 		const kpiGrid = view.container.querySelector('.kpi-grid') as HTMLElement;
 		expect(within(kpiGrid).getByText('₱250.50')).not.toBeNull();
-	});
-
-	it('marks KPIs stale when a filtered load fails instead of showing old totals', async () => {
-		const view = await renderBoard();
-		endpointMocks.listOrders.mockRejectedValueOnce(new ApiError(503, 'Filtered failure.'));
-
-		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
-
-		await waitFor(() =>
-			expect(view.container.querySelector('[data-kpi-stale="true"]')).not.toBeNull()
-		);
-		const kpiGrid = view.container.querySelector('.kpi-grid') as HTMLElement;
-		expect(within(kpiGrid).getAllByText('—')).toHaveLength(3);
-	});
-
-	it('keeps filtered rows visible when the independent KPI fetch fails', async () => {
-		const view = await renderBoard();
-		endpointMocks.listOrders.mockImplementation(async (status?: string) => {
-			if (status === 'Pending') return [orders[0]!];
-			throw new ApiError(503, 'KPI failure.');
-		});
-
-		await fireEvent.click(view.getByRole('button', { name: 'Tinanggap' }));
-
-		await waitFor(() =>
-			expect(
-				Array.from(view.container.querySelectorAll('tbody tr[data-order-id]')).map((row) =>
-					row.getAttribute('data-order-id')
-				)
-			).toEqual(['1'])
-		);
-		expect(view.container.querySelector('[data-kpi-stale="true"]')).not.toBeNull();
-		expect(view.getByText('Nakuha ang mga order, pero hindi ang KPI')).not.toBeNull();
+		expect(view.container.querySelector('tbody tr[data-order-id="1"]')).not.toBeNull();
 	});
 
 	it('uses status-safe wording for an empty completed filter', async () => {
 		const view = await renderBoard();
-		endpointMocks.listOrders.mockImplementation(async (status?: string) =>
-			status === 'Completed' ? [] : orders
-		);
-
 		await fireEvent.click(view.getByRole('button', { name: 'Nakuha na' }));
 
 		expect(
@@ -699,7 +657,7 @@ describe('Phase 6 order board and QR', () => {
 		expect(await within(row).findByText(message, { exact: false })).not.toBeNull();
 	});
 
-	it('refetches the filtered board after a successful delete', async () => {
+	it('refetches the board after a successful delete', async () => {
 		const view = await renderBoard();
 		const initialListCalls = endpointMocks.listOrders.mock.calls.length;
 		const row = view.container.querySelector('tbody tr[data-order-id="1"]') as HTMLElement;
@@ -804,6 +762,28 @@ describe('Phase 6 order board and QR', () => {
 		authMocks.setState({ status: 'anonymous', user: null });
 		vi.advanceTimersByTime(30_000);
 		expect(endpointMocks.listOrders.mock.calls.length).toBe(initialCalls + 2);
+		view.unmount();
+	});
+
+	it('pauses automatic polling for a minute after a 429 response', async () => {
+		vi.useFakeTimers();
+		const view = await renderBoard();
+		const initialCalls = endpointMocks.listOrders.mock.calls.length;
+		endpointMocks.listOrders.mockRejectedValueOnce(new ApiError(429, 'Rate limited.'));
+
+		vi.advanceTimersByTime(15_000);
+		await vi.runAllTicks();
+		await waitFor(() => expect(endpointMocks.listOrders).toHaveBeenCalledTimes(initialCalls + 1));
+		await fireEvent.click(view.getByRole('button', { name: 'I-refresh' }));
+		expect(endpointMocks.listOrders).toHaveBeenCalledTimes(initialCalls + 1);
+
+		vi.advanceTimersByTime(45_000);
+		await vi.runAllTicks();
+		expect(endpointMocks.listOrders).toHaveBeenCalledTimes(initialCalls + 1);
+
+		vi.advanceTimersByTime(15_000);
+		await vi.runAllTicks();
+		await waitFor(() => expect(endpointMocks.listOrders).toHaveBeenCalledTimes(initialCalls + 2));
 		view.unmount();
 	});
 });
@@ -930,7 +910,10 @@ describe('Phase 3 admin menu and product images', () => {
 		expect(await view.findByText('Laing')).not.toBeNull();
 		expect(endpointMocks.uploadProductImage).not.toHaveBeenCalled();
 		expect((view.getByLabelText('Pangalan ng ulam') as HTMLInputElement).value).toBe('');
-		expect(view.getByText('Naidagdag ang Laing sa menu.')).not.toBeNull();
+		const toast = view.getByRole('status', { name: 'Notification sa menu' });
+		expect(within(toast).getByText('Naidagdag ang Laing sa menu.')).not.toBeNull();
+		await fireEvent.click(within(toast).getByRole('button', { name: 'Isara ang notification' }));
+		expect(view.queryByText('Naidagdag ang Laing sa menu.')).toBeNull();
 	});
 
 	it('creates then uploads an optional image and refreshes server-backed state', async () => {
@@ -955,7 +938,11 @@ describe('Phase 3 admin menu and product images', () => {
 		await fireEvent.click(view.getByRole('button', { name: 'Idagdag sa menu' }));
 
 		await waitFor(() => expect(endpointMocks.uploadProductImage).toHaveBeenCalledWith(13, file));
-		expect(await view.findByText('Naidagdag ang Pinakbet kasama ang larawan.')).not.toBeNull();
+		expect(
+			within(await view.findByRole('status', { name: 'Notification sa menu' })).getByText(
+				'Naidagdag ang Pinakbet kasama ang larawan.'
+			)
+		).not.toBeNull();
 		expect(view.getByAltText('Larawan ng Pinakbet').getAttribute('src')).toBe(
 			'https://images.test/pinakbet.webp'
 		);

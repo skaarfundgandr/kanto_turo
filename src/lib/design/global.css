@@ -2090,6 +2090,49 @@ a {
 	margin-top: 6px;
 }
 
+.admin-menu-toast {
+	position: fixed;
+	right: clamp(1rem, 3vw, 2rem);
+	bottom: clamp(1rem, 3vw, 2rem);
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	max-width: min(28rem, calc(100vw - 2rem));
+	padding: 0.85rem 1rem;
+	border: 2px solid var(--ink);
+	background: var(--paper);
+	box-shadow: 5px 5px 0 var(--ink);
+	font-weight: 700;
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(0.75rem);
+	pointer-events: none;
+	transition:
+		opacity 140ms ease,
+		transform 140ms ease,
+		visibility 0s linear 140ms;
+}
+
+.admin-menu-toast--visible {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0);
+	pointer-events: auto;
+	transition-delay: 0s;
+}
+
+.admin-menu-toast button {
+	flex: 0 0 auto;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 1.35rem;
+	line-height: 1;
+	cursor: pointer;
+}
+
 .admin-menu-board__note {
 	font-size: 1.02rem;
 }

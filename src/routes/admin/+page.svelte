@@ -23,6 +23,7 @@
 	import {
 		ADMIN_ORDER_FILTERS,
 		ADMIN_POLL_INTERVAL_MS,
+		ADMIN_RATE_LIMIT_COOLDOWN_MS,
 		adminOrderFilterLabel,
 		deriveAdminFilterCounts,
 		deriveAdminKpis,
@@ -60,6 +61,7 @@
 	let mounted = true;
 	let boardRequest = 0;
 	let adminPolling: PollingHandle | null = null;
+	let pollingPausedUntil = 0;
 
 	let orderingQrUrl: string | null = null;
 	let orderingQrBlob: Blob | null = null;
@@ -70,7 +72,9 @@
 	let menuProductCount: number | null = null;
 	let fontsReady = false;
 
-	$: sortedOrders = sortOrdersNewestFirst(orders);
+	$: sortedOrders = sortOrdersNewestFirst(
+		filter === 'all' ? orders : orders.filter((order) => order.status === filter)
+	);
 	$: kpis = deriveAdminKpis(kpiOrders);
 	$: tallyCounts = deriveAdminFilterCounts(kpiOrders);
 	$: stationNotes = {
@@ -116,7 +120,11 @@
 				() => false,
 				{
 					intervalMs: ADMIN_POLL_INTERVAL_MS,
-					shouldPoll: () => mounted && currentAuthStatus === 'authenticated' && !boardBusy
+					shouldPoll: () =>
+						mounted &&
+						currentAuthStatus === 'authenticated' &&
+						!boardBusy &&
+						Date.now() >= pollingPausedUntil
 				}
 			);
 		}
@@ -223,12 +231,13 @@
 
 	async function loadOrders(showLoading = false): Promise<boolean> {
 		if (currentAuthStatus !== 'authenticated') return true;
+		if (Date.now() < pollingPausedUntil) return false;
 		const request = ++boardRequest;
 		if (showLoading || orders.length === 0) boardState = 'loading';
 		boardBusy = true;
 		boardError = '';
 		boardErrorTitle = 'Hindi ma-load ang board';
-		kpiStale = true;
+		if (kpiOrders.length === 0) kpiStale = true;
 
 		if (isOffline()) {
 			if (request === boardRequest && mounted) {
@@ -240,40 +249,23 @@
 		}
 
 		try {
-			const requestedStatus = filter === 'all' ? undefined : filter;
-			let loaded: Order[];
-			let fullOrders: Order[] | null;
-			if (requestedStatus === undefined) {
-				loaded = await listOrders();
-				fullOrders = loaded;
-			} else {
-				// Keep a successfully server-filtered ledger visible if its independent KPI fetch fails.
-				const [filteredResult, fullResult] = await Promise.allSettled([
-					listOrders(requestedStatus),
-					listOrders()
-				]);
-				if (filteredResult.status === 'rejected') throw filteredResult.reason;
-				loaded = filteredResult.value;
-				fullOrders = fullResult.status === 'fulfilled' ? fullResult.value : null;
-			}
+			const loaded = await listOrders();
 			if (!mounted || request !== boardRequest) return true;
 			orders = sortOrdersNewestFirst(loaded);
-			if (fullOrders) {
-				kpiOrders = sortOrdersNewestFirst(fullOrders);
-				kpiStale = false;
-			} else {
-				boardErrorTitle = 'Nakuha ang mga order, pero hindi ang KPI';
-				boardError = 'I-refresh muli para makuha ang pinakabagong mga bilang.';
-				kpiStale = true;
-			}
+			kpiOrders = orders;
+			kpiStale = false;
+			pollingPausedUntil = 0;
 			boardState = 'ready';
 			return true;
 		} catch (error) {
 			if (!mounted || request !== boardRequest) return true;
+			if (error instanceof ApiError && error.status === 429) {
+				pollingPausedUntil = Date.now() + ADMIN_RATE_LIMIT_COOLDOWN_MS;
+			}
 			boardState = orders.length > 0 ? 'ready' : 'error';
 			boardError = loadErrorMessage(error);
 			boardErrorTitle = 'Hindi ma-load ang board';
-			kpiStale = true;
+			if (kpiOrders.length === 0) kpiStale = true;
 			return false;
 		} finally {
 			if (request === boardRequest) boardBusy = false;
@@ -287,11 +279,7 @@
 	function selectFilter(value: string): void {
 		if (!isAdminOrderFilter(value) || value === filter) return;
 		filter = value;
-		orders = [];
 		rowErrors = {};
-		kpiStale = true;
-		boardState = 'loading';
-		void loadOrders(true);
 	}
 
 	function refreshBoard(): void {

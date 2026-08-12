@@ -4,6 +4,8 @@ import { ORDER_STATUS_LABELS } from './status';
 
 /** The board refreshes often enough for a demo without competing with actions. */
 export const ADMIN_POLL_INTERVAL_MS = 15_000;
+/** Minimum delay before the order endpoint is retried after a rate-limit response. */
+export const ADMIN_RATE_LIMIT_COOLDOWN_MS = 60_000;
 
 export type AdminOrderFilter = 'all' | OrderStatus;
 
