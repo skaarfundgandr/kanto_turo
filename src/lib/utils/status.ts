@@ -34,8 +34,8 @@ export type StatusTone = 'neutral' | 'accent' | 'warning' | 'positive' | 'negati
 
 export const ORDER_STATUS_TONES: Record<OrderStatus, StatusTone> = {
 	Pending: 'neutral',
-	Accepted: 'accent',
-	Ready: 'warning',
+	Accepted: 'warning',
+	Ready: 'positive',
 	Completed: 'positive',
 	Cancelled: 'negative'
 };

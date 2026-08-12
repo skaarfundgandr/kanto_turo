@@ -20,6 +20,24 @@ export function adminOrderFilterLabel(filter: AdminOrderFilter): string {
 	return filter === 'all' ? 'Lahat' : ORDER_STATUS_LABELS[filter];
 }
 
+/** Per-pile order counts for the tally strip, derived from the full fetched set. */
+export function deriveAdminFilterCounts(
+	orders: readonly Order[]
+): Record<AdminOrderFilter, number> {
+	const counts: Record<AdminOrderFilter, number> = {
+		all: orders.length,
+		Pending: 0,
+		Accepted: 0,
+		Ready: 0,
+		Completed: 0,
+		Cancelled: 0
+	};
+	for (const order of orders) {
+		if (order.status) counts[order.status] += 1;
+	}
+	return counts;
+}
+
 export function parseAdminDate(value: string | null | undefined): Date | null {
 	if (!value) return null;
 	const normalized = value.includes('T') ? value : value.replace(' ', 'T');

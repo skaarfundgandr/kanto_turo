@@ -14,6 +14,8 @@ export interface TuroOptions {
 	selected?: boolean;
 	/** Explicitly choose one of the two hand-drawn ellipse variants. */
 	variant?: 0 | 1;
+	/** Set to false to ink only the picked/selected state, never hover/focus previews. */
+	preview?: boolean;
 	/** Called when the action host is activated. */
 	onPick?: () => void;
 }
@@ -149,9 +151,13 @@ export function turo(node: HTMLElement, initial: TuroOptions = {}) {
 		svg?.remove();
 		svg = null;
 	};
-	const onPointerEnter = () => draw();
+	const onPointerEnter = () => {
+		if (options.preview !== false) draw();
+	};
 	const onPointerLeave = () => erase();
-	const onFocusIn = () => draw();
+	const onFocusIn = () => {
+		if (options.preview !== false) draw();
+	};
 	const onFocusOut = (event: FocusEvent) => {
 		if (!node.contains(event.relatedTarget as Node | null)) erase();
 	};

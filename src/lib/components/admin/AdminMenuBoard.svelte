@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { ApiError } from '$lib/api/errors';
 	import {
+		createCategory,
 		createProduct,
 		deleteProductImage,
 		listCategories,
@@ -12,11 +13,12 @@
 	import Button from '$lib/components/shared/Button.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import InlineAlert from '$lib/components/shared/InlineAlert.svelte';
-	import PaintedSign from '$lib/components/shared/PaintedSign.svelte';
 	import Skeleton from '$lib/components/shared/Skeleton.svelte';
 	import { centsToDecimalString, formatPeso, parsePriceToCents } from '$lib/utils/money';
 
 	export let active = false;
+	/** Live ulam count for the binder tab note; null until the first successful load. */
+	export let productCount: number | null = null;
 
 	type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 	type ProductsLoadResult =
@@ -49,6 +51,12 @@
 	let busyProducts: Record<number, boolean> = {};
 	let rowErrors: Record<number, string> = {};
 	let rowMessages: Record<number, string> = {};
+
+	let catAddOpen = false;
+	let newCategoryName = '';
+	let catAddBusy = false;
+	let catAddError = '';
+	let catAddStatus = '';
 
 	$: pricePreview = previewPrice(price);
 	$: if (mounted && active && !activeStarted) {
@@ -154,6 +162,7 @@
 				}
 				products = loaded;
 				productsState = 'ready';
+				productCount = loaded.length;
 				return { status: 'success', products: loaded };
 			} catch (error) {
 				if (!mounted || !active || request !== productsRequest) {
@@ -176,6 +185,80 @@
 		);
 		latestProductsLoad = followedLoad;
 		return followedLoad;
+	}
+
+	function categoryErrorMessage(error: unknown): string {
+		if (!(error instanceof ApiError)) return 'Hindi naidagdag ang kategorya. Subukan muli.';
+		switch (error.status) {
+			case 0:
+				return 'Walang koneksyon. Subukan muli kapag online na.';
+			case 401:
+				return 'Tapos na ang admin session. Mag-login muli bago magpatuloy.';
+			case 403:
+				return 'Walang pahintulot ang account para sa pagbabagong ito (403).';
+			case 409:
+				return 'May kategorya nang gumagamit ng pangalang ito (409).';
+			case 429:
+				return 'Masyadong maraming request (429). Maghintay bago subukan muli.';
+			default:
+				return error.message || `Hindi naidagdag ang kategorya (${error.status}).`;
+		}
+	}
+
+	function toggleCatAdd(): void {
+		catAddOpen = !catAddOpen;
+		catAddError = '';
+		if (catAddOpen) catAddStatus = '';
+	}
+
+	async function submitNewCategory(): Promise<void> {
+		if (catAddBusy) return;
+		const name = newCategoryName.trim();
+		catAddError = '';
+		catAddStatus = '';
+		if (!name) {
+			catAddError = 'Ilagay ang pangalan ng bagong kategorya.';
+			return;
+		}
+
+		const existing = categories.find(
+			(category) => category.name.toLowerCase() === name.toLowerCase()
+		);
+		if (existing) {
+			selectedCategory = existing.name;
+			newCategoryName = '';
+			catAddOpen = false;
+			catAddStatus = `Napili ang kategoryang ${existing.name}.`;
+			return;
+		}
+
+		catAddBusy = true;
+		try {
+			await createCategory(name);
+		} catch (error) {
+			catAddError = categoryErrorMessage(error);
+			return;
+		} finally {
+			catAddBusy = false;
+		}
+
+		const loaded = await loadCategories(false);
+		const created = loaded?.find((category) => category.name === name);
+		if (created) selectedCategory = created.name;
+		newCategoryName = '';
+		catAddOpen = false;
+		catAddStatus = created
+			? `Naidagdag ang kategoryang ${created.name}.`
+			: loaded
+				? `Naidagdag ang ${name}, pero hindi pa lumitaw sa listahan ng mga kategorya.`
+				: `Naidagdag ang ${name}, pero hindi na-refresh ang mga kategorya.`;
+	}
+
+	function handleNewCategoryKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter') return;
+		// The input lives inside the dish form; Enter must not submit a half-filled ulam.
+		event.preventDefault();
+		void submitNewCategory();
 	}
 
 	function validateProduct(): { price: string; name: string } | null {
@@ -391,11 +474,8 @@
 	}
 </script>
 
-<section class="admin-menu-board" aria-labelledby="admin-menu-title" data-admin-menu-board>
-	<div class="section-heading admin-menu-board__heading">
-		<PaintedSign id="admin-menu-title" text="ANG MENU" level="h2" delay="0.15s" />
-		<span class="section-sidenote">dagdag ulam, ikabit ang larawan</span>
-	</div>
+<div class="admin-menu-board" data-admin-menu-board>
+	<p class="hand admin-menu-board__note">dagdag ulam, ikabit ang larawan</p>
 
 	<div class="admin-menu-grid">
 		<form
@@ -406,7 +486,7 @@
 				void submitProduct();
 			}}
 		>
-			<h3 class="sign-type admin-menu-subtitle" id="admin-new-product-title">BAGONG ULAM</h3>
+			<h2 class="sign-type admin-menu-subtitle" id="admin-new-product-title">BAGONG ULAM</h2>
 
 			<label class="admin-menu-field" for="admin-product-name">
 				<span>Pangalan ng ulam</span>
@@ -442,8 +522,8 @@
 				</span>
 			</label>
 
-			<label class="admin-menu-field" for="admin-product-category">
-				<span>Kategorya</span>
+			<div class="admin-menu-field">
+				<label for="admin-product-category">Kategorya</label>
 				<select
 					id="admin-product-category"
 					name="category"
@@ -455,7 +535,47 @@
 						<option value={category.name}>{category.name}</option>
 					{/each}
 				</select>
-			</label>
+				<button
+					class="admin-menu-cat-toggle"
+					type="button"
+					aria-expanded={catAddOpen}
+					aria-controls="admin-cat-add"
+					disabled={formBusy}
+					onclick={toggleCatAdd}
+				>
+					+ bagong kategorya
+				</button>
+				{#if catAddOpen}
+					<div class="admin-menu-cat-add" id="admin-cat-add">
+						<label class="sr-only" for="admin-new-category">Pangalan ng bagong kategorya</label>
+						<input
+							id="admin-new-category"
+							type="text"
+							autocomplete="off"
+							placeholder="Hal. Meryenda"
+							bind:value={newCategoryName}
+							disabled={catAddBusy || formBusy}
+							onkeydown={handleNewCategoryKeydown}
+						/>
+						<Button
+							variant="ghost"
+							size="small"
+							busy={catAddBusy}
+							disabled={catAddBusy || formBusy}
+							onclick={submitNewCategory}
+						>
+							Idagdag
+						</Button>
+						<span class="admin-menu-cat-add__note"
+							>Lilitaw agad sa select na ito at sa menu ng customer.</span
+						>
+					</div>
+				{/if}
+				{#if catAddError}
+					<p class="admin-menu-row-error" role="alert">{catAddError}</p>
+				{/if}
+				<span class="sr-only" aria-live="polite">{catAddStatus}</span>
+			</div>
 			{#if categoriesError}
 				<div class="admin-menu-inline-state">
 					<InlineAlert tone="error" title="Hindi ma-load ang mga kategorya">
@@ -540,9 +660,9 @@
 
 		<section class="admin-product-list" aria-labelledby="admin-product-list-title">
 			<header class="admin-product-list__header">
-				<h3 class="sign-type admin-menu-subtitle" id="admin-product-list-title">
+				<h2 class="sign-type admin-menu-subtitle" id="admin-product-list-title">
 					MGA ULAM SA BAHAY
-				</h3>
+				</h2>
 				{#if productsError && products.length > 0}
 					<Button
 						variant="quiet"
@@ -685,4 +805,4 @@
 			</p>
 		</section>
 	</div>
-</section>
+</div>

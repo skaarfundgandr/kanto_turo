@@ -13,7 +13,7 @@
 	import KusinaShell from '$lib/components/shell/KusinaShell.svelte';
 	import PublicShell from '$lib/components/shell/PublicShell.svelte';
 	import '$lib/design/global.css';
-	import { setAuthRedirectHandler } from '$lib/stores/auth';
+	import { authStore, logout, setAuthRedirectHandler } from '$lib/stores/auth';
 
 	function normalizePathname(pathname: string): string {
 		const normalizedBase = base.replace(/\/+$/, '');
@@ -37,6 +37,8 @@
 		return normalizePathname(pathname) === '/';
 	}
 
+	let kusinaAuthenticated = false;
+
 	onMount(() => {
 		const redirectToLogin = (): void => {
 			// A protected 401 must not interrupt guest menu or signed-receipt flows.
@@ -44,9 +46,20 @@
 			void goto(resolve('/login'));
 		};
 
+		const unsubscribe = authStore.subscribe((state) => {
+			kusinaAuthenticated = state.status === 'authenticated';
+		});
 		setAuthRedirectHandler(redirectToLogin);
-		return () => setAuthRedirectHandler(null);
+		return () => {
+			unsubscribe();
+			setAuthRedirectHandler(null);
+		};
 	});
+
+	function logoutOfKusina(): void {
+		logout();
+		void goto(resolve('/login'));
+	}
 </script>
 
 <svelte:head>
@@ -54,7 +67,10 @@
 </svelte:head>
 
 {#if isKusina(page.url.pathname as string) || isLogin(page.url.pathname as string)}
-	<KusinaShell login={isLogin(page.url.pathname as string)}>
+	<KusinaShell
+		login={isLogin(page.url.pathname as string)}
+		action={kusinaAuthenticated ? { label: 'Mag-logout', onClick: logoutOfKusina } : null}
+	>
 		<slot />
 	</KusinaShell>
 {:else}

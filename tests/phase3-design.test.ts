@@ -258,6 +258,28 @@ describe('Phase 3 visual contract', () => {
 		expect(host.querySelector('svg')).toBeNull();
 	});
 
+	it('inks only the picked state when the turo preview is disabled', () => {
+		const host = document.createElement('div');
+		const target = document.createElement('span');
+		host.append(target);
+		document.body.append(host);
+
+		const action = turo(host, { target, host, preview: false });
+		host.dispatchEvent(new Event('pointerenter'));
+		expect(host.querySelector('svg')).toBeNull();
+		host.dispatchEvent(new Event('focusin'));
+		expect(host.querySelector('svg')).toBeNull();
+
+		action.update({ target, host, preview: false, selected: true });
+		expect(host.querySelector('svg')).not.toBeNull();
+		host.dispatchEvent(new Event('pointerleave'));
+		expect(host.querySelector('svg')).not.toBeNull();
+
+		action.update({ target, host, preview: false, selected: false });
+		expect(host.querySelector('svg')).toBeNull();
+		action.destroy();
+	});
+
 	it('reports copy feedback without replacing child DOM and updates a dedicated label safely', async () => {
 		vi.useFakeTimers();
 		const writeText = vi.fn().mockResolvedValue(undefined);

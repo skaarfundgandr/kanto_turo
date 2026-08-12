@@ -95,6 +95,7 @@ type LoginRequestBody = RequestBody<Operation<'/auth/login', 'post'>>;
 type CreateOrderRequestBody = RequestBody<Operation<'/orders', 'post'>>;
 type UpdateOrderRequestBody = RequestBody<Operation<'/orders/{id}', 'post'>>;
 type CreateProductRequestBody = RequestBody<Operation<'/products', 'post'>>;
+type CreateCategoryRequestBody = RequestBody<Operation<'/categories', 'post'>>;
 type ProductImageRequestBody = MultipartRequestBody<Operation<'/products/{id}/image', 'post'>>;
 type ProductImagePath = PathParameters<Operation<'/products/{id}/image', 'post'>>;
 
@@ -122,6 +123,15 @@ function expectList<Wire, T>(value: unknown, normalize: WireNormalizer<Wire, T>)
 	const normalized: T[] = [];
 	for (const item of value) normalized.push(expectValue<Wire, T>(item, normalize));
 	return normalized;
+}
+
+function uniqueCategoriesByName(categories: Category[]): Category[] {
+	const names = new Set<string>();
+	return categories.filter((category) => {
+		if (names.has(category.name)) return false;
+		names.add(category.name);
+		return true;
+	});
 }
 
 function expectText(value: unknown): string {
@@ -180,10 +190,22 @@ export async function deleteProductImage(productId: ProductImagePath['id']): Pro
 }
 
 export async function listCategories(): Promise<Category[]> {
-	return expectList<ListItem<CategoryListWire>, Category>(
-		await apiRequest('/categories', { auth: 'none' }),
-		normalizeCategory
+	return uniqueCategoriesByName(
+		expectList<ListItem<CategoryListWire>, Category>(
+			await apiRequest('/categories', { auth: 'none' }),
+			normalizeCategory
+		)
 	);
+}
+
+export async function createCategory(name: CreateCategoryRequestBody['name']): Promise<void> {
+	const body: CreateCategoryRequestBody = { name };
+	await apiRequest('/categories', {
+		method: 'POST',
+		body,
+		as: 'text',
+		auth: 'required'
+	});
 }
 
 export async function listCategoryProducts(categoryName: string): Promise<Product[]> {

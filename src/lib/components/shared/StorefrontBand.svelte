@@ -8,12 +8,19 @@
 		label: string;
 	}
 
+	interface BandAction {
+		label: string;
+		onClick: () => void;
+	}
+
 	export let variant: 'public' | 'kusina' = 'public';
 	export let href = '/';
 	export let subtitle = '';
 	export let note = '';
 	export let navItems: readonly BandNavItem[] = [];
 	export let navLabel = 'Pangunahing nabigasyon';
+	/** Optional non-link action (e.g. logout) rendered at the end of the nav list. */
+	export let action: BandAction | null = null;
 
 	function resolvedSubtitle(): string {
 		return subtitle || (variant === 'kusina' ? 'Kusina · Admin Board' : 'Turo-Turo · Karinderya');
@@ -61,6 +68,17 @@
 							</a>
 						</li>
 					{/each}
+					{#if action}
+						<li>
+							<button
+								class="band__nav-link band__nav-action"
+								type="button"
+								onclick={action.onClick}
+							>
+								{action.label}
+							</button>
+						</li>
+					{/if}
 				</ul>
 			</nav>
 		{/if}

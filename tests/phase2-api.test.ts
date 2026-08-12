@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiRequest } from '../src/lib/api/client';
 import {
 	cancelOrder,
+	createCategory,
 	createProduct,
 	createGuestOrder,
 	deleteOrder,
@@ -152,6 +153,11 @@ describe('API client errors and endpoint policy', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it('fails protected category creation locally when no token exists', async () => {
+		await expect(createCategory('Meryenda')).rejects.toMatchObject({ status: 401 });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it('passes raw FormData through without setting a multipart content type', async () => {
 		const body = new FormData();
 		body.append('file', new Blob(['image'], { type: 'image/png' }));
@@ -226,6 +232,21 @@ describe('API client errors and endpoint policy', () => {
 		});
 	});
 
+	it('deduplicates category names before exposing them to keyed tabs', async () => {
+		const category = {
+			category_id: 8,
+			name: 'New Name',
+			description: null,
+			created_at: null,
+			updated_at: null
+		};
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse([category, { ...category, category_id: 21, description: 'Duplicate row' }])
+		);
+
+		await expect(listCategories()).resolves.toEqual([category]);
+	});
+
 	it('requires auth for user, admin action, and QR endpoints', async () => {
 		setStoredToken('admin-token');
 		fetchMock.mockImplementation(async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -240,6 +261,9 @@ describe('API client errors and endpoint policy', () => {
 			if (url.pathname.endsWith('/orders/42') && method === 'DELETE')
 				return new Response('deleted');
 			if (url.pathname.endsWith('/qr/ordering')) return new Response('<svg />');
+			if (url.pathname.endsWith('/categories') && method === 'POST') {
+				return new Response('Category added', { status: 201 });
+			}
 			if (url.pathname.endsWith('/auth/refresh')) return jsonResponse({ token: 'refreshed-token' });
 			return jsonResponse([]);
 		});
@@ -252,6 +276,7 @@ describe('API client errors and endpoint policy', () => {
 		await cancelOrder(42);
 		await deleteOrder(42);
 		await getOrderingQr();
+		await createCategory('Meryenda');
 
 		for (const call of fetchMock.mock.calls) {
 			expect(authorizationOf(call)).toBe('Bearer admin-token');

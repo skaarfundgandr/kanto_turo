@@ -12,6 +12,7 @@ import ReceiptPage from '../src/routes/order/[id]/+page.svelte';
 
 const endpointMocks = vi.hoisted(() => ({
 	cancelOrder: vi.fn(),
+	createCategory: vi.fn(),
 	createProduct: vi.fn(),
 	createGuestOrder: vi.fn(),
 	deleteProductImage: vi.fn(),
@@ -264,7 +265,7 @@ describe('Phase 7 route accessibility', () => {
 				.getAllByRole('columnheader')
 				.map((cell) => cell.textContent?.trim())
 		).toEqual(['Oras', '#', 'Laman', 'Kabuuan', 'Kusina', 'Bayad', 'Aksyon']);
-		const statusTabs = view.getByRole('navigation', {
+		const statusTabs = view.getByRole('group', {
 			name: 'Salain ayon sa status ng kusina'
 		});
 		expect(

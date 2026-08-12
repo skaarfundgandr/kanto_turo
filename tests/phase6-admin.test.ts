@@ -8,6 +8,7 @@ import AdminLayout from '../src/routes/admin/+layout.svelte';
 import AdminPage from '../src/routes/admin/+page.svelte';
 import LoginPage from '../src/routes/login/+page.svelte';
 import {
+	deriveAdminFilterCounts,
 	deriveAdminKpis,
 	formatAdminDateTime,
 	sortOrdersNewestFirst
@@ -22,6 +23,7 @@ const navigationMocks = vi.hoisted(() => ({
 
 const endpointMocks = vi.hoisted(() => ({
 	cancelOrder: vi.fn(),
+	createCategory: vi.fn(),
 	createProduct: vi.fn(),
 	deleteOrder: vi.fn(),
 	deleteProductImage: vi.fn(),
@@ -209,6 +211,7 @@ beforeEach(() => {
 	endpointMocks.listCategories.mockReset();
 	endpointMocks.listProducts.mockReset();
 	endpointMocks.cancelOrder.mockReset();
+	endpointMocks.createCategory.mockReset();
 	endpointMocks.createProduct.mockReset();
 	endpointMocks.deleteOrder.mockReset();
 	endpointMocks.deleteProductImage.mockReset();
@@ -224,6 +227,7 @@ beforeEach(() => {
 	endpointMocks.listCategories.mockResolvedValue([category]);
 	endpointMocks.listProducts.mockResolvedValue([product]);
 	endpointMocks.cancelOrder.mockResolvedValue('cancelled');
+	endpointMocks.createCategory.mockResolvedValue(undefined);
 	endpointMocks.createProduct.mockResolvedValue(undefined);
 	endpointMocks.deleteOrder.mockResolvedValue('deleted');
 	endpointMocks.deleteProductImage.mockResolvedValue(undefined);
@@ -259,6 +263,17 @@ describe('Phase 6 admin domain and guard', () => {
 			todayOrders: 1,
 			paidRevenueCents: 25_050,
 			unpaidOrFailed: 2
+		});
+	});
+
+	it('counts each tally pile from the full fetched order set', () => {
+		expect(deriveAdminFilterCounts(orders)).toEqual({
+			all: 3,
+			Pending: 1,
+			Accepted: 1,
+			Ready: 0,
+			Completed: 0,
+			Cancelled: 1
 		});
 	});
 
@@ -468,6 +483,13 @@ describe('Phase 6 order board and QR', () => {
 		expect(view.getAllByText('₱250.50')).not.toHaveLength(0);
 		expect(view.getByText('Order ngayong araw')).not.toBeNull();
 		expect(view.container.querySelector('.kpi-card__value')).not.toBeNull();
+		// The tally piles and tab note must leave the loading state once the board lands.
+		const lahatButton = view.getByRole('button', { name: 'Lahat' });
+		expect(within(lahatButton).queryByText('—')).toBeNull();
+		expect(within(lahatButton).getByText('3')).not.toBeNull();
+		expect(within(view.getByRole('button', { name: 'Tinanggap' })).getByText('1')).not.toBeNull();
+		expect(within(view.getByRole('button', { name: 'Kinansela' })).getByText('1')).not.toBeNull();
+		expect(view.getByText('0 ngayon')).not.toBeNull();
 		expect(
 			view.container.querySelector('tbody tr[data-order-id="1"] time')?.getAttribute('datetime')
 		).toBe(formatAdminDateTime(orders[0]?.created_at));
@@ -483,7 +505,6 @@ describe('Phase 6 order board and QR', () => {
 		expect(view.container.querySelector('.admin-workspace .admin-qr-panel')).not.toBeNull();
 		expect(view.container.querySelector('[data-order-card-id]')).toBeNull();
 		expect(view.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-		expect(view.getByRole('heading', { level: 2, name: 'MGA ORDER' })).not.toBeNull();
 		const advanceLabel = within(
 			view.container.querySelector('tbody tr[data-order-id="1"]') as HTMLElement
 		)
@@ -825,9 +846,68 @@ describe('Phase 3 admin menu and product images', () => {
 		const view = await renderMenu();
 
 		expect(await view.findByText('Chicken adobo')).not.toBeNull();
-		expect(view.getByRole('heading', { name: 'MGA ORDER', hidden: true })).not.toBeNull();
+		expect(view.container.querySelector('#admin-station-orders')?.hasAttribute('hidden')).toBe(
+			true
+		);
 		expect(view.getByText('Hindi ma-load ang mga kategorya')).not.toBeNull();
 		expect(view.getByRole('button', { name: 'Subukan muli ang mga kategorya' })).not.toBeNull();
+	});
+
+	it('creates a category inline and selects it in the dish form', async () => {
+		const meryenda: Category = {
+			category_id: 2,
+			name: 'Meryenda',
+			description: null,
+			created_at: null,
+			updated_at: null
+		};
+		endpointMocks.listCategories
+			.mockResolvedValueOnce([category])
+			.mockResolvedValueOnce([category, meryenda]);
+		const view = await renderMenu();
+
+		await fireEvent.click(view.getByRole('button', { name: '+ bagong kategorya' }));
+		await fireEvent.input(view.getByLabelText('Pangalan ng bagong kategorya'), {
+			target: { value: 'Meryenda' }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag' }));
+
+		await waitFor(() => expect(endpointMocks.createCategory).toHaveBeenCalledWith('Meryenda'));
+		await waitFor(() =>
+			expect((view.getByLabelText('Kategorya') as HTMLSelectElement).value).toBe('Meryenda')
+		);
+		expect(endpointMocks.listCategories).toHaveBeenCalledTimes(2);
+		expect(view.queryByLabelText('Pangalan ng bagong kategorya')).toBeNull();
+	});
+
+	it('keeps category creation conflicts inline and the form untouched', async () => {
+		endpointMocks.createCategory.mockRejectedValueOnce(new ApiError(409, 'Conflict.'));
+		const view = await renderMenu();
+
+		await fireEvent.click(view.getByRole('button', { name: '+ bagong kategorya' }));
+		await fireEvent.input(view.getByLabelText('Pangalan ng bagong kategorya'), {
+			target: { value: 'Meryenda' }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag' }));
+
+		expect(
+			await view.findByText('May kategorya nang gumagamit ng pangalang ito (409).')
+		).not.toBeNull();
+		expect((view.getByLabelText('Kategorya') as HTMLSelectElement).value).toBe('Ulam');
+	});
+
+	it('selects an existing category instead of posting a duplicate', async () => {
+		const view = await renderMenu();
+
+		await fireEvent.click(view.getByRole('button', { name: '+ bagong kategorya' }));
+		await fireEvent.input(view.getByLabelText('Pangalan ng bagong kategorya'), {
+			target: { value: ' ulam ' }
+		});
+		await fireEvent.click(view.getByRole('button', { name: 'Idagdag' }));
+
+		expect(endpointMocks.createCategory).not.toHaveBeenCalled();
+		expect((view.getByLabelText('Kategorya') as HTMLSelectElement).value).toBe('Ulam');
+		expect(view.queryByLabelText('Pangalan ng bagong kategorya')).toBeNull();
 	});
 
 	it('creates a product without an image, reloads the list, and resets the form', async () => {

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { ApiError } from '$lib/api/errors';
 	import {
@@ -12,20 +10,21 @@
 		updateOrderStatus
 	} from '$lib/api/endpoints';
 	import type { Order, OrderStatus } from '$lib/api/types';
+	import { turo } from '$lib/actions/turo';
 	import AdminMenuBoard from '$lib/components/admin/AdminMenuBoard.svelte';
 	import Button from '$lib/components/shared/Button.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import InlineAlert from '$lib/components/shared/InlineAlert.svelte';
 	import KpiCard from '$lib/components/shared/KpiCard.svelte';
-	import PaintedSign from '$lib/components/shared/PaintedSign.svelte';
 	import PaperPanel from '$lib/components/shared/PaperPanel.svelte';
 	import Skeleton from '$lib/components/shared/Skeleton.svelte';
 	import StatusChip from '$lib/components/shared/StatusChip.svelte';
-	import { authStore, logout, type AuthStatus } from '$lib/stores/auth';
+	import { authStore, type AuthStatus } from '$lib/stores/auth';
 	import {
 		ADMIN_ORDER_FILTERS,
 		ADMIN_POLL_INTERVAL_MS,
 		adminOrderFilterLabel,
+		deriveAdminFilterCounts,
 		deriveAdminKpis,
 		formatAdminDateTime,
 		parseAdminDate,
@@ -68,9 +67,19 @@
 	let orderingQrBusy = false;
 	let orderingQrRequest = 0;
 	let activeStation: AdminStation = 'orders';
+	let menuProductCount: number | null = null;
+	let fontsReady = false;
 
 	$: sortedOrders = sortOrdersNewestFirst(orders);
 	$: kpis = deriveAdminKpis(kpiOrders);
+	$: tallyCounts = deriveAdminFilterCounts(kpiOrders);
+	$: stationNotes = {
+		orders: kpiStale ? 'naglo-load' : `${kpis.todayOrders} ngayon`,
+		menu: menuProductCount === null ? '' : `${menuProductCount} ulam`,
+		qr: ''
+	} satisfies Record<AdminStation, string>;
+	// Ink the active pile only once the visible station's final webfont metrics settle.
+	$: tallyInkReady = fontsReady && activeStation === 'orders';
 
 	onMount(() => {
 		const syncStationFromHash = (): void => {
@@ -87,6 +96,14 @@
 				clearOrderingQr();
 			}
 		});
+
+		if (typeof document !== 'undefined' && document.fonts) {
+			void document.fonts.ready.then(() => {
+				if (mounted) fontsReady = true;
+			});
+		} else {
+			fontsReady = true;
+		}
 
 		if (currentAuthStatus === 'authenticated') {
 			void loadOrders(true);
@@ -138,23 +155,6 @@
 			case 'qr':
 				return 'QR NG MESA';
 		}
-	}
-
-	function stationNote(station: AdminStation): string {
-		switch (station) {
-			case 'orders':
-				return kpiStale ? 'naglo-load' : `${kpis.todayOrders} ngayon`;
-			case 'menu':
-				return 'setup ng ulam';
-			case 'qr':
-				return '';
-		}
-	}
-
-	function filterCount(option: AdminOrderFilter): string {
-		if (kpiStale) return '—';
-		if (option === 'all') return String(kpiOrders.length);
-		return String(kpiOrders.filter((order) => order.status === option).length);
 	}
 
 	function selectStation(station: AdminStation, updateHash = true): void {
@@ -510,11 +510,6 @@
 			if (mounted && request === orderingQrRequest) orderingQrBusy = false;
 		}
 	}
-
-	function logoutAndLeave(): void {
-		logout();
-		void goto(resolve('/login'));
-	}
 </script>
 
 <svelte:head>
@@ -562,8 +557,8 @@
 					onkeydown={(event) => handleStationKeydown(event, station)}
 				>
 					<span class="admin-binder-tab__label">{stationLabel(station)}</span>
-					{#if stationNote(station)}
-						<span class="admin-binder-tab__note hand">{stationNote(station)}</span>
+					{#if stationNotes[station]}
+						<span class="admin-binder-tab__note hand">{stationNotes[station]}</span>
 					{/if}
 				</button>
 			{/each}
@@ -577,32 +572,25 @@
 			aria-labelledby="admin-tab-orders"
 			hidden={activeStation !== 'orders'}
 		>
-			<section class="admin-orders" aria-labelledby="admin-title" aria-busy={boardBusy}>
-				<header class="admin-orders__header">
-					<div class="section-heading">
-						<PaintedSign id="admin-title" text="MGA ORDER" level="h2" delay="0.08s" />
-						<span class="section-sidenote">live board ng kusina</span>
-					</div>
-					<Button variant="quiet" size="small" onclick={logoutAndLeave}>Mag-logout</Button>
-				</header>
-
+			<div class="admin-orders" aria-busy={boardBusy}>
 				<div class="admin-filter-row admin-station-bar">
-					<nav class="admin-status-tabs" aria-label="Salain ayon sa status ng kusina">
+					<div class="admin-status-tabs" role="group" aria-label="Salain ayon sa status ng kusina">
 						{#each ADMIN_ORDER_FILTERS as option (option)}
 							<button
 								class="admin-status-tab"
 								type="button"
+								use:turo={{ selected: filter === option && tallyInkReady, preview: false }}
 								aria-label={adminOrderFilterLabel(option)}
 								aria-pressed={filter === option}
 								onclick={() => selectFilter(option)}
 							>
 								<span class="admin-status-tab__name">{adminOrderFilterLabel(option)}</span>
 								<span class="admin-status-tab__count till" aria-hidden="true"
-									>{filterCount(option)}</span
+									>{kpiStale ? '—' : String(tallyCounts[option])}</span
 								>
 							</button>
 						{/each}
-					</nav>
+					</div>
 					<Button
 						variant="quiet"
 						size="small"
@@ -715,7 +703,9 @@
 														onclick={() => void runRowAction(order, 'pay')}
 													>
 														<svg aria-hidden="true" viewBox="0 0 24 24" fill="none">
-															<path />
+															<path
+																d="M8.6 4.2c-.2 4.8-.3 10.4-.1 15.6M8.6 4.4c4.6-.5 8.2 1.2 8 4-.2 2.8-4 4-8.1 3.6M5.2 6.6c4.8-.3 9.6-.2 13.6 0M5.2 10.6c4.8-.3 9.6-.2 13.6 0"
+															/>
 														</svg>
 													</button>
 												{/if}
@@ -767,9 +757,10 @@
 					</div>
 				{/if}
 				<p class="admin-ledger-note">
-					Ang “Bayad” ay payment status mula sa server: unpaid, paid, o failed.
+					Ang “Bayad” ay payment status mula sa server: unpaid, paid, o failed. Lampas ₱1,000.00 =
+					failed (demo rule).
 				</p>
-			</section>
+			</div>
 		</section>
 
 		<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
@@ -780,7 +771,10 @@
 			aria-labelledby="admin-tab-menu"
 			hidden={activeStation !== 'menu'}
 		>
-			<AdminMenuBoard active={currentAuthStatus === 'authenticated' && activeStation === 'menu'} />
+			<AdminMenuBoard
+				active={currentAuthStatus === 'authenticated' && activeStation === 'menu'}
+				bind:productCount={menuProductCount}
+			/>
 		</section>
 
 		<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->

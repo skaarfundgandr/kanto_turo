@@ -206,6 +206,10 @@ a {
 	color: var(--ink);
 }
 
+.band__nav-action {
+	background: transparent;
+}
+
 .band-note {
 	max-width: 23ch;
 	font-family: var(--font-hand);
@@ -575,6 +579,8 @@ a {
 /* Ballpen ink is decorative and never becomes an extra focus target. */
 .turo-ink {
 	position: absolute;
+	/* The global svg max-width would clamp the ellipse to small hosts like tally buttons. */
+	max-width: none;
 	overflow: visible;
 	pointer-events: none;
 	z-index: 5;
@@ -1784,19 +1790,12 @@ a {
 	min-width: 0;
 }
 
-.admin-orders__header {
+.admin-filter-row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
-	min-width: 0;
-}
-
-.admin-filter-row {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 12px;
+	flex-wrap: wrap;
+	gap: 8px 16px;
 	min-width: 0;
 }
 
@@ -1849,7 +1848,7 @@ a {
 
 .admin-ledger {
 	width: 100%;
-	min-width: 800px;
+	min-width: 834px;
 	border-collapse: collapse;
 	font-size: 0.85rem;
 }
@@ -1901,7 +1900,7 @@ a {
 }
 
 .admin-ledger th:nth-child(7) {
-	width: 202px;
+	width: 236px;
 }
 
 .admin-ledger__time,
@@ -1921,7 +1920,7 @@ a {
 }
 
 .admin-ledger__actions {
-	min-width: 202px;
+	min-width: 236px;
 }
 
 .admin-row-actions {
@@ -2055,17 +2054,6 @@ a {
 }
 
 @media (max-width: 760px) {
-	.admin-orders__header,
-	.admin-filter-row {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.admin-orders__header > .btn,
-	.admin-filter-row > .btn {
-		align-self: flex-start;
-	}
-
 	.admin-ledger-hint {
 		display: block;
 	}
@@ -2102,8 +2090,8 @@ a {
 	margin-top: 6px;
 }
 
-.admin-menu-board__heading {
-	margin-top: 6px;
+.admin-menu-board__note {
+	font-size: 1.02rem;
 }
 
 .admin-menu-grid {
@@ -2253,6 +2241,54 @@ a {
 	font-size: 0.7rem;
 	font-weight: 400;
 	letter-spacing: 0.06em;
+}
+
+/* Inline "bagong kategorya" — a ballpen annotation that unfolds into an
+   input row only when a new case section is needed. */
+.admin-menu-cat-toggle {
+	justify-self: start;
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--hit);
+	padding: 0 4px;
+	border: 0;
+	background: none;
+	color: var(--pen);
+	font-family: var(--font-hand);
+	font-size: 1rem;
+	font-weight: 400;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.admin-menu-cat-toggle:hover {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.admin-menu-cat-toggle:disabled {
+	opacity: 0.55;
+}
+
+.admin-menu-cat-add {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.admin-menu-cat-add input {
+	flex: 1 1 12ch;
+}
+
+.admin-menu-cat-add__note {
+	flex-basis: 100%;
+	color: var(--ink-faint);
+	font-family: var(--font-till);
+	font-size: 0.72rem;
+	font-weight: 400;
+	letter-spacing: 0;
+	text-transform: none;
 }
 
 .admin-menu-remove-link {
@@ -2623,17 +2659,6 @@ a {
 
 .admin-station--qr .admin-qr-panel {
 	text-align: center;
-}
-
-@media (max-width: 760px) {
-	.admin-station-bar {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.admin-station-bar > .btn {
-		align-self: flex-start;
-	}
 }
 
 @media (max-width: 560px) {

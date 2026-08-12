@@ -3,6 +3,8 @@
 	import StorefrontBand from '$lib/components/shared/StorefrontBand.svelte';
 
 	export let login = false;
+	/** Optional band action (e.g. logout on the admin board); hidden on the login shell. */
+	export let action: { label: string; onClick: () => void } | null = null;
 
 	const navItems = [
 		{ href: '/', label: 'Menu' },
@@ -15,9 +17,10 @@
 		variant="kusina"
 		href="/"
 		subtitle="Kusina · Admin Board"
-		note={login ? '“para sa counter lang”' : 'para sa counter'}
+		note={login ? '“para sa counter lang”' : '“para sa counter — huwag ipakita sa customer”'}
 		navItems={login ? [] : navItems}
 		navLabel="Kusina navigation"
+		action={login ? null : action}
 	/>
 	<main class="page-frame page" class:page--admin={!login} class:page--login={login}>
 		<slot />
