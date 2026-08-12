@@ -17,8 +17,9 @@ import { load as adminLoad } from '../src/routes/admin/+layout';
 
 const navigationMocks = vi.hoisted(() => ({
 	goto: vi.fn().mockResolvedValue(undefined),
+	replaceState: vi.fn((url: string) => window.history.replaceState(null, '', url)),
 	resolve: (path: string) => `/base${path}`,
-	page: { url: new URL('http://localhost/base/') }
+	page: { url: new URL('http://localhost/base/'), state: {} }
 }));
 
 const endpointMocks = vi.hoisted(() => ({
@@ -74,7 +75,10 @@ const authMocks = vi.hoisted(() => {
 	};
 });
 
-vi.mock('$app/navigation', () => ({ goto: navigationMocks.goto }));
+vi.mock('$app/navigation', () => ({
+	goto: navigationMocks.goto,
+	replaceState: navigationMocks.replaceState
+}));
 vi.mock('$app/paths', () => ({ resolve: navigationMocks.resolve, base: '/base' }));
 vi.mock('$app/state', () => ({ page: navigationMocks.page }));
 vi.mock('$env/dynamic/public', () => ({ env: {} }));

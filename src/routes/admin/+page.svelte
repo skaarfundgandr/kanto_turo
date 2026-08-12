@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { ApiError } from '$lib/api/errors';
 	import {
@@ -171,10 +174,9 @@
 
 		const nextHash = station === 'orders' ? '' : `#${station}`;
 		if (window.location.hash === nextHash) return;
-		window.history.replaceState(
-			null,
-			'',
-			`${window.location.pathname}${window.location.search}${nextHash}`
+		replaceState(
+			resolve(`/admin${window.location.search}${nextHash}` as '/admin'),
+			page.state
 		);
 	}
 
