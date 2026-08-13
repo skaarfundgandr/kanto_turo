@@ -8,7 +8,7 @@
 		"build": "vite build",
 		"start": "bun run preview",
 		"preview": "bun run build && wrangler dev",
-		"deploy": "bun run build && wrangler deploy",
+		"deploy": "bun run build && wrangler deploy --keep-vars",
 		"cf-typegen": "wrangler types",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

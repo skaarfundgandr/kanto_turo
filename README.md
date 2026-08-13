@@ -118,6 +118,8 @@ bun run deploy
 
 Set `PUBLIC_API_BASE_URL` under **Workers & Pages → kanto-turo → Settings → Variables and Secrets**. Its value must be the public HTTPS URL of the Arrow Server API and end exactly in `/api/v1`. Deploy again after changing a versioned variable.
 
+The deployment script uses Wrangler's `--keep-vars` option, and `wrangler.jsonc` enables `keep_vars`, so this dashboard-managed value is preserved when new code is deployed.
+
 For Cloudflare Builds, use `bun run deploy` as the deploy command. The Worker entry point and asset directory are defined in `wrangler.jsonc`; no build output directory needs to be entered separately.
 
 The Arrow Server API remains a separate deployment. Add the exact `https://*.workers.dev` or custom-domain frontend origin to its CORS allowlist. Redact signed order query values from API and observability logs.
