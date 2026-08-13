@@ -7,6 +7,7 @@ RUN bun install --frozen-lockfile
 FROM dependencies AS build
 
 COPY . .
+ENV SVELTEKIT_ADAPTER=node
 RUN bun run build
 
 FROM oven/bun:1.3.14 AS production-dependencies

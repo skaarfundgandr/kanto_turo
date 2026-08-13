@@ -12,11 +12,13 @@ coverage/
 .svelte-kit/
 .angular/
 .turbo/
+.wrangler/
 
 # Environment files
 .env
 .env.*
 !.env.example
+!.dev.vars.example
 
 # Logs
 *.log

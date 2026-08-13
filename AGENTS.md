@@ -12,7 +12,7 @@ This is a SvelteKit 5 frontend. Routes live in `src/routes/`; reusable UI, store
 - `bun run lint` enforces ESLint rules, including API-layer restrictions.
 - `bun run format:check` verifies Prettier formatting; `bun run format` fixes it.
 - `bun run test:unit` runs Vitest once. Do not use bare `bun test`; it bypasses the Vite/Svelte configuration.
-- `bun run build` creates the adapter-node production build; `bun run start` serves it.
+- `bun run build` creates the Cloudflare Worker build; `bun run start` serves it locally with Wrangler.
 
 ## Coding Style & Naming Conventions
 

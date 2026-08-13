@@ -9,7 +9,8 @@ The frontend consumes the [Arrow Server API](https://github.com/skaarfundgandr/a
 - [Bun](https://bun.sh/) 1.3 or newer
 - A running Arrow Server API for live data
 - MySQL, Rust, and Diesel CLI only when operating the API locally
-- Docker and Azure tooling only when deploying the frontend
+- A Cloudflare account when deploying the frontend
+- Docker only when using the optional self-hosted Node deployment
 
 The unit and component tests use Vitest and happy-dom, so they do not require a running API, database, object storage, or browser.
 
@@ -27,11 +28,12 @@ bun run format:check
 bun run test:unit
 bun run build
 bun run start
+bun run deploy
 ```
 
 Use `bun run test:unit` or `bun run test` for the configured Vitest suite. Do not use bare `bun test`; it invokes Bun's separate test runner without this project's Vite, Svelte, and happy-dom configuration.
 
-The development server uses `http://127.0.0.1:5173`. The production adapter-node server honors `HOST` and `PORT`.
+The development server uses `http://127.0.0.1:5173`. `bun run preview` builds the app and runs the generated Worker locally with Wrangler.
 
 ## Configuration
 
@@ -40,8 +42,6 @@ Copy `.env.example` to an environment file for local overrides. Keep credentials
 | Variable              | Default                        | Description                                                                                       |
 | --------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
 | `PUBLIC_API_BASE_URL` | `http://127.0.0.1:3000/api/v1` | Absolute API URL ending exactly in `/api/v1`, with no query, hash, extra path, or trailing slash. |
-| `HOST`                | Adapter-node default           | Host used by the production server.                                                               |
-| `PORT`                | `3000`                         | Port used by the production server.                                                               |
 
 `PUBLIC_API_BASE_URL` is public runtime configuration, not a secret. The generated API client sends browser requests directly to this URL; the frontend does not proxy API traffic. HTTP is intended for loopback development addresses, while remote APIs should use HTTPS.
 
@@ -109,15 +109,17 @@ The repository's verification record is [`docs/phase7-verification.md`](docs/pha
 
 ## Deployment
 
-Build and run the adapter-node image on a Docker-enabled host:
+The application builds for Cloudflare Workers using SvelteKit's Cloudflare adapter. Authenticate Wrangler, configure the public API URL as a plain-text Worker variable in the Cloudflare dashboard, and deploy:
 
 ```powershell
-docker build -t kanto-frontend:local .
-docker run --rm -p 3000:3000 `
-  -e HOST=0.0.0.0 `
-  -e PORT=3000 `
-  -e PUBLIC_API_BASE_URL=https://api.example.com/api/v1 `
-  kanto-frontend:local
+bunx wrangler login
+bun run deploy
 ```
 
-For a hosted deployment, expose port `3000`, configure `PUBLIC_API_BASE_URL` at runtime, and set the API's CORS allowlist to the exact deployed frontend origin. Configure health probes against `/` and redact signed query values from platform and ingress logs.
+Set `PUBLIC_API_BASE_URL` under **Workers & Pages → kanto-turo → Settings → Variables and Secrets**. Its value must be the public HTTPS URL of the Arrow Server API and end exactly in `/api/v1`. Deploy again after changing a versioned variable.
+
+For Cloudflare Builds, use `bun run deploy` as the deploy command. The Worker entry point and asset directory are defined in `wrangler.jsonc`; no build output directory needs to be entered separately.
+
+The Arrow Server API remains a separate deployment. Add the exact `https://*.workers.dev` or custom-domain frontend origin to its CORS allowlist. Redact signed order query values from API and observability logs.
+
+The existing Dockerfile remains available for a self-hosted Node deployment. It sets `SVELTEKIT_ADAPTER=node` during the image build; normal builds default to Cloudflare and do not require this variable.

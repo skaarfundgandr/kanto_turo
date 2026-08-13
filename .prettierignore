@@ -6,4 +6,8 @@ src/lib/api/generated.ts
 
 # Build output
 .svelte-kit/
+.wrangler/
 build/
+
+# Agent scratch files
+.codex/

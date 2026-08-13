@@ -150,6 +150,7 @@ export default tseslint.config(
 		ignores: [
 			'build/',
 			'.svelte-kit/',
+			'.wrangler/',
 			'dist/',
 			'node_modules/',
 			// ignored design/reference material, never part of the application

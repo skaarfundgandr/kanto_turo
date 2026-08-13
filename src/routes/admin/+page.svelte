@@ -174,10 +174,7 @@
 
 		const nextHash = station === 'orders' ? '' : `#${station}`;
 		if (window.location.hash === nextHash) return;
-		replaceState(
-			resolve(`/admin${window.location.search}${nextHash}` as '/admin'),
-			page.state
-		);
+		replaceState(resolve(`/admin${window.location.search}${nextHash}` as '/admin'), page.state);
 	}
 
 	function handleStationKeydown(event: KeyboardEvent, station: AdminStation): void {
