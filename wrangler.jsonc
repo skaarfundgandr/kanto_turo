@@ -5,6 +5,9 @@
 	"compatibility_date": "2026-08-13",
 	"compatibility_flags": ["nodejs_compat"],
 	"keep_vars": true,
+	"vars": {
+		"PUBLIC_API_BASE_URL": "https://arrow-backend.jollyplant-c8afca0c.southeastasia.azurecontainerapps.io/api/v1"
+	},
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
